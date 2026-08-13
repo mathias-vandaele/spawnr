@@ -583,6 +583,36 @@
             validate-runtime lock "$out/runtime.lock.json"
           '';
 
+      releaseInstaller =
+        pkgs.runCommand "spawnr-installer-0.1.0"
+          {
+            nativeBuildInputs = [
+              pkgs.coreutils
+              pkgs.gnused
+              pkgs.shellcheck
+            ];
+            meta = commonRust.meta // {
+              description = "Versioned checksum-pinned Spawnr bootstrap installer";
+            };
+          }
+          ''
+            mkdir -p "$out"
+            cli_sha=$(sha256sum ${spawnrStatic}/bin/spawnr | cut --delimiter=' ' --fields=1)
+            cli_size=$(stat --format=%s ${spawnrStatic}/bin/spawnr)
+            substitute ${source}/install/install.sh.in "$out/install.sh" \
+              --replace-fail '@SPAWNR_VERSION@' '0.1.0' \
+              --replace-fail '@SPAWNR_CLI_SHA256@' "$cli_sha" \
+              --replace-fail '@SPAWNR_CLI_SIZE@' "$cli_size"
+            grep -F "cli_sha256='$cli_sha'" "$out/install.sh"
+            grep -F "cli_size_bytes='$cli_size'" "$out/install.sh"
+            shellcheck --shell=sh "$out/install.sh"
+            chmod 0555 "$out/install.sh"
+            ${source}/scripts/test-installer.sh \
+              "$out/install.sh" \
+              ${spawnrStatic}/bin/spawnr
+            touch -h -d '@1' "$out" "$out/install.sh"
+          '';
+
       releaseArtifacts =
         pkgs.runCommand "spawnr-release-artifacts-0.1.0-x86_64-linux"
           {
@@ -617,6 +647,7 @@
               "$out/spawnr-runtime-0.1.0-x86_64-linux.tar.zst"
             install -m0444 ${runtimeArchive}/runtime-metadata.json "$out/runtime-metadata.json"
             install -m0444 ${runtimeLockCandidate}/runtime.lock.json "$out/runtime.lock.json"
+            install -m0555 ${releaseInstaller}/install.sh "$out/install.sh"
             install -m0444 ${sourceMetadata} "$out/runtime-sources.json"
             install -m0444 ${source}/LICENSE "$out/LICENSE"
 
@@ -705,6 +736,7 @@
               cd "$out"
               sha256sum \
                 LICENSE \
+                install.sh \
                 THIRD-PARTY-LICENSES.txt \
                 THIRD-PARTY-NOTICES.md \
                 runtime-metadata.json \
@@ -770,7 +802,10 @@
             actionlint \
               -config-file .github/actionlint.yaml \
               .github/workflows/*.yml
-            shellcheck scripts/ci-kvm-release.sh
+            shellcheck \
+              scripts/ci-kvm-release.sh \
+              scripts/installer-fake-curl.sh \
+              scripts/test-installer.sh
             python -m py_compile scripts/check-release-tag.py
             cargo fmt --all -- --check
             ${pkgs.check-jsonschema}/bin/check-jsonschema \
@@ -801,6 +836,7 @@
         runtime-tree = runtimeTree;
         runtime-archive = runtimeArchive;
         runtime-lock-candidate = runtimeLockCandidate;
+        installer = releaseInstaller;
         release-artifacts = releaseArtifacts;
       };
 
@@ -820,6 +856,7 @@
           runtimeTree
           runtimeArchive
           runtimeLockCandidate
+          releaseInstaller
           releaseArtifacts
           spawnrBundle
           ;

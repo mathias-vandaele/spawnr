@@ -1,0 +1,80 @@
+#!/bin/sh
+set -eu
+
+version='@SPAWNR_VERSION@'
+repository='spawnr-dev/spawnr'
+cli_sha256='@SPAWNR_CLI_SHA256@'
+cli_size_bytes='@SPAWNR_CLI_SIZE@'
+cli_file="spawnr-${version}-x86_64-linux"
+release_url="https://github.com/${repository}/releases/download/v${version}/${cli_file}"
+
+fail() {
+    printf 'spawnr installer: %s\n' "$*" >&2
+    exit 1
+}
+
+case "$(uname -s 2>/dev/null || true)" in
+    Linux) ;;
+    *) fail 'Spawnr V1 requires Linux' ;;
+esac
+case "$(uname -m 2>/dev/null || true)" in
+    x86_64 | amd64) ;;
+    *) fail 'Spawnr V1 requires an x86_64 host' ;;
+esac
+
+command -v curl >/dev/null 2>&1 || fail 'curl is required to download the CLI'
+command -v sha256sum >/dev/null 2>&1 || fail 'sha256sum is required to verify the CLI'
+command -v mktemp >/dev/null 2>&1 || fail 'mktemp is required for atomic installation'
+command -v wc >/dev/null 2>&1 || fail 'wc is required to verify the CLI size'
+
+: "${HOME:?HOME must be set}"
+install_dir=${SPAWNR_INSTALL_DIR:-"$HOME/.local/bin"}
+case "$install_dir" in
+    /*) ;;
+    *) fail 'SPAWNR_INSTALL_DIR must be an absolute path' ;;
+esac
+
+umask 077
+mkdir -p -- "$install_dir"
+temporary=$(mktemp -d "$install_dir/.spawnr-install.XXXXXX") || \
+    fail "cannot create a temporary directory in $install_dir"
+cleanup() {
+    if [ -n "${temporary:-}" ] && [ -d "$temporary" ]; then
+        chmod -R u+w "$temporary" 2>/dev/null || true
+        find "$temporary" -depth -delete 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+
+download="$temporary/$cli_file"
+printf 'Downloading Spawnr %s for Linux x86_64...\n' "$version"
+curl \
+    --proto '=https' \
+    --tlsv1.2 \
+    --fail \
+    --location \
+    --silent \
+    --show-error \
+    --max-filesize "$cli_size_bytes" \
+    --output "$download" \
+    "$release_url"
+
+actual_size=$(wc -c < "$download")
+[ "$actual_size" = "$cli_size_bytes" ] || \
+    fail "downloaded CLI has size $actual_size, expected $cli_size_bytes bytes"
+actual_sha256=$(sha256sum "$download")
+actual_sha256=${actual_sha256%% *}
+[ "$actual_sha256" = "$cli_sha256" ] || \
+    fail 'downloaded CLI failed its embedded SHA-256 check'
+chmod 0755 "$download"
+mv -f -- "$download" "$install_dir/spawnr"
+
+printf '\nSpawnr %s installed at %s/spawnr\n' "$version" "$install_dir"
+case ":${PATH:-}:" in
+    *":$install_dir:"*) ;;
+    *)
+        printf 'Add %s to PATH, then run:\n' "$install_dir"
+        ;;
+esac
+printf '\n  spawnr setup\n  spawnr doctor\n\n'

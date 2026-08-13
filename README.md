@@ -99,6 +99,7 @@ The portable release CLI installs its matched runtime itself, then verifies
 the host and runtime separately:
 
 ```console
+$ curl -fsSL https://spawnr.dev/install.sh | sh
 $ spawnr setup
 $ spawnr doctor
 ```

@@ -231,8 +231,12 @@ The release workflow is deliberately split across security boundaries:
    reimport/rollback KVM scenario.
 4. Only the final `release` environment job receives `contents: write`, OIDC,
    and attestation permissions. It reverifies checksums, creates provenance
-   attestations, uploads all assets to a draft release, and publishes the
-   draft only after every upload succeeds.
+   attestations, selects only the assets belonging to that runtime or CLI
+   channel, uploads them to a draft release, and publishes the draft only
+   after every upload succeeds.
+5. A successful CLI release deploys its checksum-pinned `install.sh` to
+   GitHub Pages at `spawnr.dev`; runtime-only releases never alter the public
+   installer channel.
 
 Every referenced action is pinned to a complete commit SHA. No release job
 uses Docker, a Docker socket, a registry password, or a long-lived publishing
@@ -242,6 +246,8 @@ Repository configuration is part of the release boundary and cannot be
 expressed fully in source:
 
 - enable GitHub immutable releases before the first public release;
+- configure GitHub Pages to deploy through Actions and verify the
+  `spawnr.dev` custom domain in repository settings;
 - protect `v*` and `runtime-v*` tag creation;
 - configure `kvm-release` and `release` environments with required reviewers
   and restrict them to protected release tags (the first protects access to
@@ -270,6 +276,27 @@ For a runtime-changing release:
 
 For a CLI-only patch, keep `release/runtime.lock.json` unchanged and create the
 new CLI tag after the normal candidate and KVM gates.
+
+## Bootstrap installer
+
+`install/install.sh.in` is a source template, not a mutable downloader. Nix
+generates the release's `install.sh` after the static CLI exists and embeds
+that exact binary's byte size and SHA-256 plus the exact `v<CLI_VERSION>`
+GitHub URL. The installer accepts only Linux x86_64, requires HTTPS/TLS 1.2 or
+newer, limits and verifies the download, then atomically installs `spawnr` to
+`$SPAWNR_INSTALL_DIR` or `$HOME/.local/bin`.
+
+It intentionally does not download the much larger runtime while executing
+inside `curl | sh`. Its complete success output points to the auditable second
+stage:
+
+```console
+$ spawnr setup
+$ spawnr doctor
+```
+
+Updating `https://spawnr.dev/install.sh` therefore requires a fully gated CLI
+release. The generic URL never resolves GitHub's mutable `latest` alias.
 
 ## Host boundary
 
