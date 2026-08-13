@@ -663,8 +663,11 @@ mod tests {
         let temporary = tempdir();
         let pid_file = temporary.path().join("process.pid.json");
         let log_file = temporary.path().join("process.log");
-        let mut command = Command::new("/bin/sh");
-        command.args(["-c", "sleep 30"]);
+        // Keep the executable identity stable for the duration of the test.
+        // A shell may replace itself with `sleep` before the identity is
+        // inspected, which makes this test depend on scheduler timing.
+        let mut command = Command::new("sleep");
+        command.arg("30");
         let mut spawned = spawn_managed(&mut command, &pid_file, &log_file).unwrap();
         assert!(matches!(
             inspect_pid_file(&pid_file).unwrap(),

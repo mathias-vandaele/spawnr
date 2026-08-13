@@ -5,6 +5,7 @@ pub mod machine;
 pub mod oci;
 pub mod paths;
 pub mod process;
+pub mod runtime;
 pub mod state;
 pub mod storage;
 pub mod vmm;

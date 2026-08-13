@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spawnr.dev/schemas/runtime-lock-v1.json",
+  "title": "Spawnr runtime lock v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "runtime_version",
+    "target",
+    "protocol_version",
+    "cli_compatibility",
+    "release_tag",
+    "archive"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "runtime_version": { "$ref": "#/$defs/semver" },
+    "target": { "const": "x86_64-linux" },
+    "protocol_version": { "const": 1 },
+    "cli_compatibility": { "$ref": "#/$defs/cliCompatibility" },
+    "release_tag": {
+      "type": "string",
+      "pattern": "^runtime-v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
+    },
+    "archive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file_name",
+        "format",
+        "url",
+        "size_bytes",
+        "sha256",
+        "manifest_sha256"
+      ],
+      "properties": {
+        "file_name": {
+          "type": "string",
+          "pattern": "^spawnr-runtime-[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?-x86_64-linux\\.tar\\.zst$"
+        },
+        "format": { "const": "tar_zstd" },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "size_bytes": { "type": "integer", "minimum": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "manifest_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  },
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "not": { "const": "0000000000000000000000000000000000000000000000000000000000000000" }
+    },
+    "cliCompatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum", "maximum_exclusive"],
+      "properties": {
+        "minimum": { "$ref": "#/$defs/semver" },
+        "maximum_exclusive": { "$ref": "#/$defs/semver" }
+      }
+    }
+  }
+}

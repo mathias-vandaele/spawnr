@@ -103,6 +103,24 @@ $ spawnr doctor
 
 The detailed source build, guest asset, local install, and end-to-end
 validation procedure is in [Development](docs/development.md).
+The public distribution trust chain is specified in [Release and runtime
+contract](docs/releases.md).
+
+### Reproducible Nix build
+
+On Linux x86_64 with flakes enabled, the pinned source build is:
+
+```console
+$ nix flake check
+$ nix build
+$ ./result/bin/spawnr doctor
+```
+
+`nix build` produces a runnable bundle containing the host CLI, static guest
+agent and BusyBox, a matched guest kernel/initramfs, Cloud Hypervisor, and the
+OCI/network/filesystem tools. It does not introduce a Docker daemon. Enter the
+same pinned Rust 1.88 development environment with `nix develop`; Nix remains
+optional for users of future native packages.
 
 ## Basic use
 

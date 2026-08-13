@@ -1,4 +1,8 @@
 /target/
+/guest/build/
+/.direnv/
+/result
+/result-*
 /.spawnr-test/
 *.img
 *.ext4

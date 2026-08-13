@@ -438,8 +438,7 @@ fn run_captured(mut command: Command) -> Result<Captured> {
         .map_err(|_| anyhow::anyhow!("stderr reader panicked"))??;
     ensure!(
         !stdout.exceeded && !stderr.exceeded,
-        "command output exceeded {} bytes per stream",
-        MAX_CAPTURED_OUTPUT
+        "command output exceeded {MAX_CAPTURED_OUTPUT} bytes per stream"
     );
     Ok(Captured {
         exit_code: exit_code(status),

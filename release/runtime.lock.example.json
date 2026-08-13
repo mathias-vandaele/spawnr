@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "runtime_version": "0.1.0",
+  "target": "x86_64-linux",
+  "protocol_version": 1,
+  "cli_compatibility": {
+    "minimum": "0.1.0",
+    "maximum_exclusive": "0.2.0"
+  },
+  "release_tag": "runtime-v0.1.0",
+  "archive": {
+    "file_name": "spawnr-runtime-0.1.0-x86_64-linux.tar.zst",
+    "format": "tar_zstd",
+    "url": "https://example.invalid/spawnr/releases/download/runtime-v0.1.0/spawnr-runtime-0.1.0-x86_64-linux.tar.zst",
+    "size_bytes": 123456789,
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "manifest_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  }
+}

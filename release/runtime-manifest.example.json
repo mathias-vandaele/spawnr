@@ -1,0 +1,244 @@
+{
+  "schema_version": 1,
+  "runtime_version": "0.1.0",
+  "target": "x86_64-linux",
+  "protocol_version": 1,
+  "cli_compatibility": {
+    "minimum": "0.1.0",
+    "maximum_exclusive": "0.2.0"
+  },
+  "components": [
+    {
+      "name": "busybox",
+      "version": "1.37.0",
+      "kind": "guest_executable",
+      "path": "guest/busybox"
+    },
+    {
+      "name": "cloud-hypervisor",
+      "version": "53.0",
+      "kind": "host_executable",
+      "path": "bin/cloud-hypervisor",
+      "launcher": {
+        "kind": "elf_loader",
+        "loader": "lib/ld-linux-x86-64.so.2",
+        "library_paths": ["lib"]
+      }
+    },
+    {
+      "name": "du",
+      "version": "9.8",
+      "kind": "host_executable",
+      "path": "bin/du",
+      "launcher": {
+        "kind": "elf_loader",
+        "loader": "lib/ld-linux-x86-64.so.2",
+        "library_paths": ["lib"]
+      }
+    },
+    {
+      "name": "e2fsck",
+      "version": "1.47.4",
+      "kind": "host_executable",
+      "path": "bin/e2fsck",
+      "launcher": {
+        "kind": "elf_loader",
+        "loader": "lib/ld-linux-x86-64.so.2",
+        "library_paths": ["lib"]
+      }
+    },
+    {
+      "name": "fuse2fs",
+      "version": "1.47.4",
+      "kind": "host_executable",
+      "path": "bin/fuse2fs",
+      "launcher": {
+        "kind": "elf_loader",
+        "loader": "lib/ld-linux-x86-64.so.2",
+        "library_paths": ["lib"]
+      }
+    },
+    {
+      "name": "fusermount3",
+      "version": "3.18.2",
+      "kind": "host_executable",
+      "path": "bin/fusermount3",
+      "launcher": {
+        "kind": "elf_loader",
+        "loader": "lib/ld-linux-x86-64.so.2",
+        "library_paths": ["lib"]
+      }
+    },
+    {
+      "name": "guest-initramfs",
+      "version": "6.18.44+spawnr.1",
+      "kind": "guest_initramfs",
+      "path": "guest/initramfs"
+    },
+    {
+      "name": "guest-kernel",
+      "version": "6.18.44",
+      "kind": "guest_kernel",
+      "path": "guest/vmlinux"
+    },
+    {
+      "name": "mkfs-ext4",
+      "version": "1.47.4",
+      "kind": "host_executable",
+      "path": "bin/mkfs-ext4",
+      "launcher": {
+        "kind": "elf_loader",
+        "loader": "lib/ld-linux-x86-64.so.2",
+        "library_paths": ["lib"]
+      }
+    },
+    {
+      "name": "passt",
+      "version": "2026_07_16.090d739",
+      "kind": "host_executable",
+      "path": "bin/passt",
+      "launcher": {
+        "kind": "elf_loader",
+        "loader": "lib/ld-linux-x86-64.so.2",
+        "library_paths": ["lib"]
+      }
+    },
+    {
+      "name": "skopeo",
+      "version": "1.24.0",
+      "kind": "host_executable",
+      "path": "bin/skopeo",
+      "launcher": {
+        "kind": "elf_loader",
+        "loader": "lib/ld-linux-x86-64.so.2",
+        "library_paths": ["lib"]
+      }
+    },
+    {
+      "name": "spawnr-agent",
+      "version": "0.1.0",
+      "kind": "guest_executable",
+      "path": "guest/spawnr-agent"
+    },
+    {
+      "name": "umoci",
+      "version": "0.6.0",
+      "kind": "host_executable",
+      "path": "bin/umoci",
+      "launcher": {
+        "kind": "elf_loader",
+        "loader": "lib/ld-linux-x86-64.so.2",
+        "library_paths": ["lib"]
+      }
+    },
+    {
+      "name": "unshare",
+      "version": "2.42.2",
+      "kind": "host_executable",
+      "path": "bin/unshare",
+      "launcher": {
+        "kind": "elf_loader",
+        "loader": "lib/ld-linux-x86-64.so.2",
+        "library_paths": ["lib"]
+      }
+    }
+  ],
+  "files": [
+    {
+      "path": "bin/cloud-hypervisor",
+      "size_bytes": 1,
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "executable": true
+    },
+    {
+      "path": "bin/du",
+      "size_bytes": 1,
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "executable": true
+    },
+    {
+      "path": "bin/e2fsck",
+      "size_bytes": 1,
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "executable": true
+    },
+    {
+      "path": "bin/fuse2fs",
+      "size_bytes": 1,
+      "sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "executable": true
+    },
+    {
+      "path": "bin/fusermount3",
+      "size_bytes": 1,
+      "sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+      "executable": true
+    },
+    {
+      "path": "bin/mkfs-ext4",
+      "size_bytes": 1,
+      "sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+      "executable": true
+    },
+    {
+      "path": "bin/passt",
+      "size_bytes": 1,
+      "sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+      "executable": true
+    },
+    {
+      "path": "bin/skopeo",
+      "size_bytes": 1,
+      "sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+      "executable": true
+    },
+    {
+      "path": "bin/umoci",
+      "size_bytes": 1,
+      "sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+      "executable": true
+    },
+    {
+      "path": "bin/unshare",
+      "size_bytes": 1,
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "executable": true
+    },
+    {
+      "path": "guest/busybox",
+      "size_bytes": 1,
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "executable": true
+    },
+    {
+      "path": "guest/initramfs",
+      "size_bytes": 1,
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "executable": false
+    },
+    {
+      "path": "guest/spawnr-agent",
+      "size_bytes": 1,
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "executable": true
+    },
+    {
+      "path": "guest/vmlinux",
+      "size_bytes": 1,
+      "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "executable": false
+    },
+    {
+      "path": "lib/ld-linux-x86-64.so.2",
+      "size_bytes": 1,
+      "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "executable": true
+    },
+    {
+      "path": "lib/libc.so.6",
+      "size_bytes": 1,
+      "sha256": "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+      "executable": false
+    }
+  ]
+}

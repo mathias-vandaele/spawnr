@@ -65,6 +65,60 @@ SPAWNR_FUSERMOUNT        SPAWNR_DU
 SPAWNR_AGENT             SPAWNR_BUSYBOX
 ```
 
+## Reproducible Nix flake
+
+The flake pins nixpkgs, the Rust overlay, Rust 1.88.0, every Cargo dependency,
+the guest kernel/module pair, BusyBox, Cloud Hypervisor, passt, and OCI tools.
+It supports the current product platform, `x86_64-linux`.
+
+Run the complete source gate:
+
+```console
+$ nix flake check
+```
+
+This builds the host CLI, the statically linked musl guest agent, guest boot
+assets, and the final runtime bundle. It also runs formatting, all workspace
+tests, Clippy with warnings denied, and a static-link check for the guest
+agent. KVM end-to-end tests remain explicit because `nix flake check` builds
+inside a sandbox without `/dev/kvm`.
+
+Build or run the complete pinned bundle:
+
+```console
+$ nix build
+$ ./result/bin/spawnr doctor
+$ nix run . -- doctor
+```
+
+Build individual outputs when iterating:
+
+```console
+$ nix build .#spawnr
+$ nix build .#spawnr-agent
+$ nix build .#guest-assets
+```
+
+Enter the development environment:
+
+```console
+$ nix develop
+$ cargo test --workspace --locked
+$ cargo build --release --locked -p spawnr
+$ cargo build --release --locked \
+    --target x86_64-unknown-linux-musl \
+    -p spawnr-agent
+```
+
+The default bundle uses a wrapper to pass immutable Nix store paths through
+Spawnr's existing `SPAWNR_*` tool/asset overrides. Mutable machine state still
+goes to `SPAWNR_HOME` (or the normal XDG data directory); no Nix store path is
+hard-coded into the Rust source.
+
+The public CLI/runtime versioning, manifest, digest chain, and release
+preparation transaction are specified in [Release and runtime
+contract](releases.md).
+
 ## Build the Rust workspace
 
 With rustup and a system `musl-gcc`:
