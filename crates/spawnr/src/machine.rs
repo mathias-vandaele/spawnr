@@ -23,6 +23,10 @@ impl Application {
 
     pub fn run(self, command: Command) -> Result<()> {
         match command {
+            Command::Setup {
+                runtime_lock,
+                runtime_archive,
+            } => self.setup(runtime_lock.as_deref(), runtime_archive.as_deref()),
             Command::Init { name, environment } => self.init(&name, &environment),
             Command::Clone {
                 environment,
@@ -38,6 +42,26 @@ impl Application {
             Command::Rm { name, force } => self.remove(&name, force),
             Command::Doctor { json } => self.doctor(json),
         }
+    }
+
+    fn setup(
+        &self,
+        runtime_lock: Option<&std::path::Path>,
+        runtime_archive: Option<&std::path::Path>,
+    ) -> Result<()> {
+        let outcome = crate::runtime_install::setup(&self.paths, runtime_lock, runtime_archive)?;
+        let action = if outcome.installed {
+            "installed"
+        } else {
+            "already installed and verified"
+        };
+        println!(
+            "✓ Spawnr runtime {} {action}",
+            outcome.installation.version()
+        );
+        println!("  {}", outcome.installation.root().display());
+        println!("\nNext:\n  spawnr doctor");
+        Ok(())
     }
 
     fn init(&self, name: &str, environment: &str) -> Result<()> {

@@ -9,8 +9,8 @@ static Spawnr CLI -> pinned runtime archive -> Linux host capabilities
 ```
 
 This document fixes the V1 contract. The flake constructs candidate release
-artifacts; `spawnr setup` and the GitHub Actions publication workflows are
-implemented in later milestones.
+artifacts and `spawnr setup` installs them; GitHub Actions publication is a
+separate release milestone.
 
 ## Candidate release outputs
 
@@ -20,6 +20,7 @@ The locked flake exposes four non-Nix release layers:
 $ nix build .#spawnr-static
 $ nix build .#runtime-tree
 $ nix build .#runtime-archive
+$ nix build .#runtime-lock-candidate
 $ nix build .#release-artifacts
 ```
 
@@ -66,9 +67,11 @@ The Rust definitions and stricter semantic validation live in
 `crates/spawnr/src/runtime.rs`. The examples use `example.invalid` and dummy
 digests; no production build may embed or download them.
 
-After the first relocatable archive exists, the release-preparation PR creates
-`release/runtime.lock.json`. That real lock is the only file later embedded in
-the static release CLI.
+The flake derives `runtime-lock-candidate` from the relocatable archive and
+embeds that exact JSON in the candidate static CLI, allowing the complete
+setup flow to be tested before publication. The release transaction promotes
+identical independently reproduced metadata to `release/runtime.lock.json`;
+the publication workflow must reject any difference.
 
 Unknown JSON fields are rejected. A schema change that cannot be read safely
 by an existing CLI increments `schema_version`.
@@ -92,7 +95,38 @@ spawnr-runtime-<VERSION>-x86_64-linux.tar.zst
 The digest is lowercase hexadecimal and an all-zero placeholder is rejected.
 The URL must end in the exact locked file name. A release CLI never resolves
 `latest` and never substitutes a distribution package or a binary from
-`PATH` for an official runtime component.
+`PATH` for an official runtime component. Explicit `SPAWNR_*` overrides remain
+available for development and diagnosis. Nix builds intentionally have no
+embedded public-release lock and resolve the components supplied by their Nix
+wrapper.
+
+## Managed installation
+
+For a public release, the normal flow is:
+
+```console
+$ spawnr setup
+$ spawnr doctor
+```
+
+`setup` streams the lock's HTTPS archive into a private temporary file with a
+finite timeout and exact byte limit. Before activation it verifies the archive
+digest, accepts only normalized regular tar members, validates the manifest
+against the external lock, and verifies every file's path, size, mode, and
+SHA-256. The versioned directory and `active.json` pointer are committed
+atomically while termination signals are blocked. Repeating setup is
+idempotent; repeating it after local corruption replaces that same version
+atomically.
+
+Air-gapped and release validation use the same code path:
+
+```console
+$ spawnr setup \
+    --runtime-lock ./runtime.lock.json \
+    --runtime-archive ./spawnr-runtime-0.1.0-x86_64-linux.tar.zst
+```
+
+The archive must still match the selected or embedded lock exactly.
 
 ## Runtime manifest and archive
 

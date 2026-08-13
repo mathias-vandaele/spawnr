@@ -96,6 +96,7 @@
           doCheck = false;
           CARGO_BUILD_TARGET = muslTarget;
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER = muslLinker;
+          CC_x86_64_unknown_linux_musl = muslLinker;
           buildPhase = ''
             runHook preBuild
             cargo build --frozen --release --target ${muslTarget} -p spawnr-agent
@@ -128,8 +129,10 @@
           doCheck = false;
           CARGO_BUILD_TARGET = muslTarget;
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER = muslLinker;
+          CC_x86_64_unknown_linux_musl = muslLinker;
           buildPhase = ''
             runHook preBuild
+            export SPAWNR_RUNTIME_LOCK_JSON="$(cat ${runtimeLockCandidate}/runtime.lock.json)"
             cargo build --frozen --release --target ${muslTarget} -p spawnr
             runHook postBuild
           '';
@@ -539,6 +542,47 @@
             done < <(jq -r '.files[] | [.path, .size_bytes, .sha256] | @tsv' ${runtimeTree}/manifest.json)
           '';
 
+      # This lock is embedded byte-for-byte in the portable CLI. The release
+      # transaction will only publish it after independent builders agree on
+      # the runtime archive digest.
+      runtimeLockCandidate =
+        pkgs.runCommand "spawnr-runtime-0.1.0-x86_64-linux-lock-candidate"
+          {
+            nativeBuildInputs = [
+              pkgs.check-jsonschema
+              pkgs.jq
+              runtimeValidator
+            ];
+            meta = commonRust.meta // {
+              description = "Candidate lock embedded in the portable Spawnr CLI";
+            };
+          }
+          ''
+            mkdir -p "$out"
+            jq -S -n \
+              --slurpfile archive ${runtimeArchive}/runtime-metadata.json \
+              '{
+                schema_version: 1,
+                runtime_version: "0.1.0",
+                target: "x86_64-linux",
+                protocol_version: 1,
+                cli_compatibility: {minimum: "0.1.0", maximum_exclusive: "0.2.0"},
+                release_tag: "runtime-v0.1.0",
+                archive: {
+                  file_name: $archive[0].file_name,
+                  format: "tar_zstd",
+                  url: ("https://github.com/spawnr-dev/spawnr/releases/download/runtime-v0.1.0/" + $archive[0].file_name),
+                  size_bytes: $archive[0].size_bytes,
+                  sha256: $archive[0].sha256,
+                  manifest_sha256: $archive[0].manifest_sha256
+                }
+              }' > "$out/runtime.lock.json"
+            check-jsonschema \
+              --schemafile ${source}/release/runtime-lock.schema.json \
+              "$out/runtime.lock.json"
+            validate-runtime lock "$out/runtime.lock.json"
+          '';
+
       releaseArtifacts =
         pkgs.runCommand "spawnr-release-artifacts-0.1.0-x86_64-linux"
           {
@@ -552,11 +596,27 @@
           }
           ''
             mkdir -p "$out"
+            export SPAWNR_HOME="$TMPDIR/setup-test"
+            runtime_archive=${runtimeArchive}/spawnr-runtime-0.1.0-x86_64-linux.tar.zst
+            ${spawnrStatic}/bin/spawnr setup --runtime-archive "$runtime_archive"
+            ${spawnrStatic}/bin/spawnr setup --runtime-archive "$runtime_archive" \
+              | grep -q 'already installed and verified'
+            chmod u+w "$SPAWNR_HOME/runtime/0.1.0/bin/passt"
+            printf 'corrupt\n' > "$SPAWNR_HOME/runtime/0.1.0/bin/passt"
+            ${spawnrStatic}/bin/spawnr setup --runtime-archive "$runtime_archive"
+            cmp \
+              ${runtimeTree}/bin/passt \
+              "$SPAWNR_HOME/runtime/0.1.0/bin/passt"
+            cmp \
+              ${runtimeTree}/manifest.json \
+              "$SPAWNR_HOME/runtime/0.1.0/manifest.json"
+
             install -m0555 ${spawnrStatic}/bin/spawnr "$out/spawnr-0.1.0-x86_64-linux"
             install -m0444 \
               ${runtimeArchive}/spawnr-runtime-0.1.0-x86_64-linux.tar.zst \
               "$out/spawnr-runtime-0.1.0-x86_64-linux.tar.zst"
             install -m0444 ${runtimeArchive}/runtime-metadata.json "$out/runtime-metadata.json"
+            install -m0444 ${runtimeLockCandidate}/runtime.lock.json "$out/runtime.lock.json"
             install -m0444 ${sourceMetadata} "$out/runtime-sources.json"
             install -m0444 ${source}/LICENSE "$out/LICENSE"
 
@@ -648,6 +708,7 @@
                 THIRD-PARTY-LICENSES.txt \
                 THIRD-PARTY-NOTICES.md \
                 runtime-metadata.json \
+                runtime.lock.json \
                 runtime-sources.json \
                 spawnr-0.1.0-x86_64-linux \
                 spawnr-runtime-0.1.0-x86_64-linux.spdx.json \
@@ -729,6 +790,7 @@
         bundle = spawnrBundle;
         runtime-tree = runtimeTree;
         runtime-archive = runtimeArchive;
+        runtime-lock-candidate = runtimeLockCandidate;
         release-artifacts = releaseArtifacts;
       };
 
@@ -747,6 +809,7 @@
           guestAssets
           runtimeTree
           runtimeArchive
+          runtimeLockCandidate
           releaseArtifacts
           spawnrBundle
           ;

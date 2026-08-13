@@ -39,6 +39,7 @@ pub struct PreparedMetadata {
 #[derive(Debug, Clone)]
 struct Tools {
     skopeo: PathBuf,
+    ca_certificates: Option<PathBuf>,
     umoci: PathBuf,
     unshare: PathBuf,
     mkfs_ext4: PathBuf,
@@ -190,7 +191,7 @@ pub fn publish_machine_environment(
             "umoci failed to generate environment layer ({status})"
         );
 
-        let mut command = Command::new(&tools.common.skopeo);
+        let mut command = skopeo_command(&tools.common);
         command
             .arg("--insecure-policy")
             .arg("copy")
@@ -219,7 +220,7 @@ fn build_cache(
     let layout = temporary.join("layout");
     let bundle = temporary.join("bundle");
     let pull_reference = immutable_pull_reference(transport_reference, digest)?;
-    let mut pull = Command::new(&tools.skopeo);
+    let mut pull = skopeo_command(tools);
     pull.arg("--insecure-policy")
         .arg("copy")
         .args(["--override-os", "linux", "--override-arch", "amd64"])
@@ -318,13 +319,18 @@ fn provision_rootfs(tools: &Tools, rootfs: &Path) -> Result<()> {
 impl Tools {
     fn discover(paths: &Paths) -> Result<Self> {
         Ok(Self {
-            skopeo: resolve_tool(paths, "SPAWNR_SKOPEO", "skopeo")?,
-            umoci: resolve_tool(paths, "SPAWNR_UMOCI", "umoci")?,
-            unshare: resolve_tool(paths, "SPAWNR_UNSHARE", "unshare")?,
-            mkfs_ext4: resolve_tool(paths, "SPAWNR_MKFS_EXT4", "mkfs.ext4")?,
-            du: resolve_tool(paths, "SPAWNR_DU", "du")?,
-            agent: resolve_asset(paths, "SPAWNR_AGENT", "spawnr-agent")?,
-            busybox: resolve_asset(paths, "SPAWNR_BUSYBOX", "spawnr-busybox")?,
+            skopeo: resolve_tool(paths, "SPAWNR_SKOPEO", "skopeo", "skopeo")?,
+            ca_certificates: if env::var_os("SSL_CERT_FILE").is_some() {
+                None
+            } else {
+                crate::runtime_install::component_path(paths, "ca-certificates")?
+            },
+            umoci: resolve_tool(paths, "SPAWNR_UMOCI", "umoci", "umoci")?,
+            unshare: resolve_tool(paths, "SPAWNR_UNSHARE", "unshare", "unshare")?,
+            mkfs_ext4: resolve_tool(paths, "SPAWNR_MKFS_EXT4", "mkfs.ext4", "mkfs-ext4")?,
+            du: resolve_tool(paths, "SPAWNR_DU", "du", "du")?,
+            agent: resolve_asset(paths, "SPAWNR_AGENT", "spawnr-agent", "spawnr-agent")?,
+            busybox: resolve_asset(paths, "SPAWNR_BUSYBOX", "spawnr-busybox", "busybox")?,
         })
     }
 }
@@ -333,21 +339,38 @@ impl PublishTools {
     fn discover(paths: &Paths) -> Result<Self> {
         Ok(Self {
             common: Tools::discover(paths)?,
-            e2fsck: resolve_tool(paths, "SPAWNR_E2FSCK", "e2fsck")?,
-            fuse2fs: resolve_tool(paths, "SPAWNR_FUSE2FS", "fuse2fs")?,
+            e2fsck: resolve_tool(paths, "SPAWNR_E2FSCK", "e2fsck", "e2fsck")?,
+            fuse2fs: resolve_tool(paths, "SPAWNR_FUSE2FS", "fuse2fs", "fuse2fs")?,
             fusermount: resolve_one_of(paths, "SPAWNR_FUSERMOUNT", &["fusermount3", "fusermount"])?,
         })
     }
 }
 
-fn resolve_tool(paths: &Paths, variable: &str, name: &str) -> Result<PathBuf> {
-    process::resolve_executable(variable, &paths.bin_dir().join(name), name)
+fn resolve_tool(paths: &Paths, variable: &str, name: &str, component: &str) -> Result<PathBuf> {
+    let bundled = crate::runtime_install::preferred_component(
+        paths,
+        variable,
+        component,
+        &paths.bin_dir().join(name),
+    )?;
+    process::resolve_executable(variable, &bundled, name)
         .with_context(|| format!("{name} is required for direct OCI environments"))
+}
+
+fn skopeo_command(tools: &Tools) -> Command {
+    let mut command = Command::new(&tools.skopeo);
+    if let Some(certificates) = &tools.ca_certificates {
+        command.env("SSL_CERT_FILE", certificates);
+    }
+    command
 }
 
 fn resolve_one_of(paths: &Paths, variable: &str, names: &[&str]) -> Result<PathBuf> {
     if let Some(value) = env::var_os(variable) {
         return process::validate_executable(Path::new(&value));
+    }
+    if let Some(path) = crate::runtime_install::component_path(paths, "fusermount3")? {
+        return process::validate_executable(&path);
     }
     for name in names {
         if let Ok(path) = process::resolve_executable(variable, &paths.bin_dir().join(name), name) {
@@ -357,13 +380,15 @@ fn resolve_one_of(paths: &Paths, variable: &str, names: &[&str]) -> Result<PathB
     bail!("cannot find {}; set {variable}", names.join(" or "))
 }
 
-fn resolve_asset(paths: &Paths, variable: &str, name: &str) -> Result<PathBuf> {
+fn resolve_asset(paths: &Paths, variable: &str, name: &str, component: &str) -> Result<PathBuf> {
     let selected = if let Some(value) = env::var_os(variable) {
         process::validate_executable(Path::new(&value))?
     } else {
         let bundled = paths.bin_dir().join(name);
-        if bundled.exists() {
-            process::validate_executable(&bundled)?
+        let preferred =
+            crate::runtime_install::preferred_component(paths, variable, component, &bundled)?;
+        if preferred != bundled || bundled.exists() {
+            process::validate_executable(&preferred)?
         } else {
             // Development builds place both host and guest binaries together.
             let sibling = env::current_exe()
@@ -425,7 +450,7 @@ fn validate_static_x86_64_elf(path: &Path) -> Result<()> {
 }
 
 fn inspect_digest(tools: &Tools, reference: &str, verbose: u8) -> Result<String> {
-    let mut command = Command::new(&tools.skopeo);
+    let mut command = skopeo_command(tools);
     command
         .arg("--insecure-policy")
         .arg("inspect")

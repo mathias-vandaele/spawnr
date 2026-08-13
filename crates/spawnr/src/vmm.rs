@@ -46,10 +46,18 @@ pub struct Vmm {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct DoctorCheck {
+    pub section: DoctorSection,
     pub name: String,
     pub ok: bool,
     pub detail: String,
     pub remedy: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DoctorSection {
+    Host,
+    Runtime,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -61,45 +69,51 @@ pub struct DoctorReport {
 impl DoctorReport {
     pub fn collect(paths: Option<&Paths>) -> Self {
         let mut checks = vec![architecture_check(), kvm_check()];
-        let bundled = |name: &str| {
-            paths
-                .map(|paths| paths.bin_dir().join(name))
-                .unwrap_or_else(|| PathBuf::from(name))
+        checks.push(managed_runtime_check(paths));
+        let bundled = |variable: &str, component: &str, name: &str| -> Result<PathBuf> {
+            match paths {
+                Some(paths) => crate::runtime_install::preferred_component(
+                    paths,
+                    variable,
+                    component,
+                    &paths.bin_dir().join(name),
+                ),
+                None => Ok(PathBuf::from(name)),
+            }
         };
-        checks.push(tool_check(
+        checks.push(runtime_tool_check(
             "cloud-hypervisor",
             "SPAWNR_CLOUD_HYPERVISOR",
-            &bundled("cloud-hypervisor"),
+            bundled(
+                "SPAWNR_CLOUD_HYPERVISOR",
+                "cloud-hypervisor",
+                "cloud-hypervisor",
+            ),
             "cloud-hypervisor",
-            "install the pinned Cloud Hypervisor release or set SPAWNR_CLOUD_HYPERVISOR",
         ));
-        checks.push(tool_check(
+        checks.push(runtime_tool_check(
             "passt",
             "SPAWNR_PASST",
-            &bundled("passt"),
+            bundled("SPAWNR_PASST", "passt", "passt"),
             "passt",
-            "install passt (vhost-user networking) or set SPAWNR_PASST",
         ));
-        checks.push(tool_check(
+        checks.push(runtime_tool_check(
             "mkfs.ext4",
             "SPAWNR_MKFS_EXT4",
-            Path::new("/usr/bin/mkfs.ext4"),
+            bundled("SPAWNR_MKFS_EXT4", "mkfs-ext4", "mkfs.ext4"),
             "mkfs.ext4",
-            "install e2fsprogs or set SPAWNR_MKFS_EXT4",
         ));
-        checks.push(asset_check(
+        checks.push(runtime_asset_check(
             "guest kernel",
             "SPAWNR_KERNEL",
-            &bundled("vmlinux"),
+            bundled("SPAWNR_KERNEL", "guest-kernel", "vmlinux"),
             true,
-            "install Spawnr guest boot assets or set SPAWNR_KERNEL",
         ));
-        checks.push(asset_check(
+        checks.push(runtime_asset_check(
             "guest initramfs",
             "SPAWNR_INITRAMFS",
-            &bundled("initramfs"),
+            bundled("SPAWNR_INITRAMFS", "guest-initramfs", "initramfs"),
             true,
-            "install the Spawnr initramfs or set SPAWNR_INITRAMFS",
         ));
         Self {
             ready: checks.iter().all(|check| check.ok),
@@ -109,9 +123,20 @@ impl DoctorReport {
 
     pub fn render_text(&self) -> String {
         let mut output = String::new();
+        let mut current_section = None;
         for check in &self.checks {
+            if current_section != Some(check.section) {
+                if current_section.is_some() {
+                    output.push('\n');
+                }
+                output.push_str(match check.section {
+                    DoctorSection::Host => "Host\n",
+                    DoctorSection::Runtime => "Runtime\n",
+                });
+                current_section = Some(check.section);
+            }
             let mark = if check.ok { "✓" } else { "✗" };
-            output.push_str(&format!("{mark} {:<20} {}\n", check.name, check.detail));
+            output.push_str(&format!("  {mark} {:<20} {}\n", check.name, check.detail));
             if !check.ok
                 && let Some(remedy) = &check.remedy
             {
@@ -134,17 +159,40 @@ impl Vmm {
             "Spawnr V1 requires Linux x86_64"
         );
         verify_kvm()?;
+        let cloud_hypervisor_bundle = crate::runtime_install::preferred_component(
+            paths,
+            "SPAWNR_CLOUD_HYPERVISOR",
+            "cloud-hypervisor",
+            &paths.bin_dir().join("cloud-hypervisor"),
+        )?;
         let cloud_hypervisor = process::resolve_executable(
             "SPAWNR_CLOUD_HYPERVISOR",
-            &paths.bin_dir().join("cloud-hypervisor"),
+            &cloud_hypervisor_bundle,
             "cloud-hypervisor",
         )?;
-        let passt =
-            process::resolve_executable("SPAWNR_PASST", &paths.bin_dir().join("passt"), "passt")?;
-        let kernel = resolve_asset("SPAWNR_KERNEL", &paths.bin_dir().join("vmlinux"))?
+        let passt_bundle = crate::runtime_install::preferred_component(
+            paths,
+            "SPAWNR_PASST",
+            "passt",
+            &paths.bin_dir().join("passt"),
+        )?;
+        let passt = process::resolve_executable("SPAWNR_PASST", &passt_bundle, "passt")?;
+        let kernel_bundle = crate::runtime_install::preferred_component(
+            paths,
+            "SPAWNR_KERNEL",
+            "guest-kernel",
+            &paths.bin_dir().join("vmlinux"),
+        )?;
+        let kernel = resolve_asset("SPAWNR_KERNEL", &kernel_bundle)?
             .context("Spawnr guest kernel is unavailable")?;
+        let initramfs_bundle = crate::runtime_install::preferred_component(
+            paths,
+            "SPAWNR_INITRAMFS",
+            "guest-initramfs",
+            &paths.bin_dir().join("initramfs"),
+        )?;
         let initramfs = Some(
-            resolve_asset("SPAWNR_INITRAMFS", &paths.bin_dir().join("initramfs"))?
+            resolve_asset("SPAWNR_INITRAMFS", &initramfs_bundle)?
                 .context("Spawnr guest initramfs is unavailable")?,
         );
         Ok(Self {
@@ -537,6 +585,7 @@ fn architecture_check() -> DoctorCheck {
     let found = format!("{} {}", env::consts::OS, env::consts::ARCH);
     let ok = env::consts::OS == "linux" && env::consts::ARCH == "x86_64";
     DoctorCheck {
+        section: DoctorSection::Host,
         name: "platform".into(),
         ok,
         detail: found,
@@ -547,12 +596,14 @@ fn architecture_check() -> DoctorCheck {
 fn kvm_check() -> DoctorCheck {
     match verify_kvm() {
         Ok(()) => DoctorCheck {
+            section: DoctorSection::Host,
             name: "KVM".into(),
             ok: true,
             detail: "/dev/kvm is accessible (API 12)".into(),
             remedy: None,
         },
         Err(error) => DoctorCheck {
+            section: DoctorSection::Host,
             name: "KVM".into(),
             ok: false,
             detail: format!("{error:#}"),
@@ -587,6 +638,95 @@ fn parse_ipv4_resolver(contents: &str) -> Result<Ipv4Addr> {
     )
 }
 
+fn managed_runtime_check(paths: Option<&Paths>) -> DoctorCheck {
+    let check = paths
+        .context("no Spawnr data directory")
+        .and_then(crate::runtime_install::verify_active);
+    match check {
+        Ok(Some(runtime)) => DoctorCheck {
+            section: DoctorSection::Runtime,
+            name: "managed runtime".into(),
+            ok: true,
+            detail: format!(
+                "{} · {} · sha256:{}",
+                runtime.version(),
+                runtime.root().display(),
+                &runtime.manifest_sha256()[..12]
+            ),
+            remedy: None,
+        },
+        Ok(None) if option_env!("SPAWNR_RUNTIME_LOCK_JSON").is_none() => DoctorCheck {
+            section: DoctorSection::Runtime,
+            name: "managed runtime".into(),
+            ok: true,
+            detail: "not active (Nix/development components allowed)".into(),
+            remedy: None,
+        },
+        Ok(None) => DoctorCheck {
+            section: DoctorSection::Runtime,
+            name: "managed runtime".into(),
+            ok: false,
+            detail: "not installed".into(),
+            remedy: Some("run `spawnr setup`".into()),
+        },
+        Err(error) => DoctorCheck {
+            section: DoctorSection::Runtime,
+            name: "managed runtime".into(),
+            ok: false,
+            detail: format!("{error:#}"),
+            remedy: Some("run `spawnr setup` to verify and repair the runtime".into()),
+        },
+    }
+}
+
+fn runtime_tool_check(
+    name: &str,
+    variable: &str,
+    bundled: Result<PathBuf>,
+    command: &str,
+) -> DoctorCheck {
+    match bundled {
+        Ok(path) => tool_check(
+            name,
+            variable,
+            &path,
+            command,
+            &format!("run `spawnr setup` or set {variable}"),
+        ),
+        Err(error) => DoctorCheck {
+            section: DoctorSection::Runtime,
+            name: name.into(),
+            ok: false,
+            detail: format!("{error:#}"),
+            remedy: Some("run `spawnr setup` to verify and repair the runtime".into()),
+        },
+    }
+}
+
+fn runtime_asset_check(
+    name: &str,
+    variable: &str,
+    bundled: Result<PathBuf>,
+    required: bool,
+) -> DoctorCheck {
+    match bundled {
+        Ok(path) => asset_check(
+            name,
+            variable,
+            &path,
+            required,
+            &format!("run `spawnr setup` or set {variable}"),
+        ),
+        Err(error) => DoctorCheck {
+            section: DoctorSection::Runtime,
+            name: name.into(),
+            ok: false,
+            detail: format!("{error:#}"),
+            remedy: Some("run `spawnr setup` to verify and repair the runtime".into()),
+        },
+    }
+}
+
 fn tool_check(
     name: &str,
     variable: &str,
@@ -596,12 +736,14 @@ fn tool_check(
 ) -> DoctorCheck {
     match process::resolve_executable(variable, bundled, command) {
         Ok(path) => DoctorCheck {
+            section: DoctorSection::Runtime,
             name: name.into(),
             ok: true,
             detail: path.display().to_string(),
             remedy: None,
         },
         Err(error) => DoctorCheck {
+            section: DoctorSection::Runtime,
             name: name.into(),
             ok: false,
             detail: error.to_string(),
@@ -619,24 +761,28 @@ fn asset_check(
 ) -> DoctorCheck {
     match resolve_asset(variable, bundled) {
         Ok(Some(path)) => DoctorCheck {
+            section: DoctorSection::Runtime,
             name: name.into(),
             ok: true,
             detail: path.display().to_string(),
             remedy: None,
         },
         Ok(None) if !required => DoctorCheck {
+            section: DoctorSection::Runtime,
             name: name.into(),
             ok: true,
             detail: "not installed (optional)".into(),
             remedy: None,
         },
         Ok(None) => DoctorCheck {
+            section: DoctorSection::Runtime,
             name: name.into(),
             ok: false,
             detail: "not found".into(),
             remedy: Some(remedy.into()),
         },
         Err(error) => DoctorCheck {
+            section: DoctorSection::Runtime,
             name: name.into(),
             ok: false,
             detail: error.to_string(),
@@ -935,6 +1081,7 @@ mod tests {
         let report = DoctorReport {
             ready: false,
             checks: vec![DoctorCheck {
+                section: DoctorSection::Host,
                 name: "KVM".into(),
                 ok: false,
                 detail: "missing".into(),

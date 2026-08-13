@@ -169,7 +169,7 @@ impl CliCompatibility {
         Ok(())
     }
 
-    fn ensure_contains(&self, cli_version: &Version) -> Result<()> {
+    pub(crate) fn ensure_contains(&self, cli_version: &Version) -> Result<()> {
         self.validate()?;
         let minimum = Version::parse(&self.minimum).expect("validated minimum CLI version");
         let maximum =
@@ -455,7 +455,7 @@ fn validate_component_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_runtime_path(path: &str, directory: bool) -> Result<()> {
+pub(crate) fn validate_runtime_path(path: &str, directory: bool) -> Result<()> {
     ensure!(!path.is_empty(), "runtime path is empty");
     ensure!(
         !path.starts_with('/'),

@@ -95,11 +95,19 @@ static `spawnr-agent`, and static BusyBox. Publishing additionally requires
 `e2fsck`, `fuse2fs`, and `fusermount3` or `fusermount`. Rootless OCI ownership
 mapping requires working user namespaces and subordinate UID/GID mappings.
 
-Run the read-only host check before creating a machine:
+The portable release CLI installs its matched runtime itself, then verifies
+the host and runtime separately:
 
 ```console
+$ spawnr setup
 $ spawnr doctor
 ```
+
+`setup` downloads the exact HTTPS archive locked into that CLI, verifies its
+size and SHA-256, validates every archive member and manifest entry, and
+activates it atomically below `$XDG_DATA_HOME/spawnr/runtime/`. It does not use
+Docker, curl, or distribution runtime packages. Nix bundles provide the same
+components directly and therefore do not require this setup step.
 
 The detailed source build, guest asset, local install, and end-to-end
 validation procedure is in [Development](docs/development.md).
@@ -125,7 +133,8 @@ optional for users of future native packages.
 Release maintainers can build the portable musl CLI and complete candidate
 artifact directory with `nix build .#spawnr-static` and
 `nix build .#release-artifacts`. The latter includes the deterministic runtime
-archive, checksums, notices, source inventory, and SPDX SBOM.
+archive and candidate lock embedded in the static CLI, checksums, notices,
+source inventory, and SPDX SBOM.
 
 ## Basic use
 

@@ -9,6 +9,7 @@ rust-version.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 libc.workspace = true
+minreq.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 semver.workspace = true
@@ -16,7 +17,9 @@ sha2.workspace = true
 spawnr-protocol = { path = "../spawnr-protocol" }
 thiserror.workspace = true
 time.workspace = true
+tar.workspace = true
 uuid.workspace = true
+zstd.workspace = true
 
 [[bin]]
 name = "spawnr"

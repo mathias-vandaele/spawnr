@@ -37,6 +37,7 @@ impl Paths {
             self.oci_dir(),
             self.blobs_dir(),
             self.bin_dir(),
+            self.runtime_dir(),
         ] {
             create_private_dir(&path)?;
         }
@@ -77,6 +78,22 @@ impl Paths {
 
     pub fn bin_dir(&self) -> PathBuf {
         self.root.join("bin")
+    }
+
+    pub fn runtime_dir(&self) -> PathBuf {
+        self.root.join("runtime")
+    }
+
+    pub fn runtime_version_dir(&self, version: &str) -> PathBuf {
+        self.runtime_dir().join(version)
+    }
+
+    pub fn runtime_active_file(&self) -> PathBuf {
+        self.runtime_dir().join("active.json")
+    }
+
+    pub fn runtime_lock_file(&self) -> PathBuf {
+        self.runtime_dir().join("setup.lock")
     }
 }
 

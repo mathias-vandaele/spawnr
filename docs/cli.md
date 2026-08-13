@@ -18,6 +18,28 @@ Without an override, the data root is `$XDG_DATA_HOME/spawnr`, falling back to
 Machine names contain 1–63 lowercase ASCII letters, digits, and interior
 hyphens. They must begin and end with a letter or digit.
 
+## `spawnr setup`
+
+```text
+spawnr setup [--runtime-lock PATH] [--runtime-archive PATH]
+```
+
+Installs the exact managed runtime selected by the release CLI. With no
+options, Spawnr downloads the pinned archive over HTTPS, verifies its locked
+size and SHA-256, validates and hashes the complete manifest, then activates a
+versioned read-only tree atomically. Repeating the command verifies and reuses
+a valid installation; a corrupt same-version installation is replaced.
+
+`--runtime-lock` and `--runtime-archive` provide the offline/release-validation
+path. They do not weaken verification: a local archive must exactly match the
+selected lock. Development builds without an embedded lock require an
+explicit lock; without a local archive they download the URL in that lock.
+
+The public CLI will not silently use distribution copies of Cloud Hypervisor,
+passt, or OCI tools when setup has not run. Explicit `SPAWNR_*` overrides are
+still honored. Nix installations supply a complete runtime through those
+controlled overrides and do not need `setup`.
+
 ## `spawnr init`
 
 ```text
@@ -197,9 +219,11 @@ matches the state record.
 spawnr doctor [--json]
 ```
 
-Performs read-only checks for the current platform, `/dev/kvm`, Cloud
-Hypervisor, `passt`, `mkfs.ext4`, the guest kernel, and initramfs. A failed
-check prints an actionable remedy and returns a nonzero status.
+Performs read-only checks grouped into `Host` and `Runtime`. Host checks cover
+the current platform and `/dev/kvm`. Runtime checks verify the active manifest
+and every installed file, then resolve Cloud Hypervisor, `passt`, `mkfs.ext4`,
+the guest kernel, and initramfs. A failed check prints an actionable remedy
+and returns a nonzero status.
 
 ```console
 $ spawnr doctor

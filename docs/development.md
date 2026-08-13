@@ -100,6 +100,7 @@ $ nix build .#spawnr-agent
 $ nix build .#guest-assets
 $ nix build .#runtime-tree
 $ nix build .#runtime-archive
+$ nix build .#runtime-lock-candidate
 $ nix build .#release-artifacts
 ```
 
@@ -116,6 +117,19 @@ $ scripts/check-release-relocation.sh \
 This isolates the extracted files with Bubblewrap, verifies every manifest
 digest, rejects dynamic ELF interpreters, exercises ext4 creation/checking,
 and proves that the bundled skopeo has no Docker-daemon transport.
+
+Exercise the exact offline setup path used by release validation with:
+
+```console
+$ nix build .#spawnr-static -o result-cli
+$ nix build .#runtime-archive -o result-runtime
+$ nix build .#runtime-lock-candidate -o result-lock
+$ export SPAWNR_HOME=/tmp/spawnr-setup-test
+$ result-cli/bin/spawnr setup \
+    --runtime-lock result-lock/runtime.lock.json \
+    --runtime-archive result-runtime/spawnr-runtime-0.1.0-x86_64-linux.tar.zst
+$ result-cli/bin/spawnr doctor
+```
 
 Enter the development environment:
 

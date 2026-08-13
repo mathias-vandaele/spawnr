@@ -23,6 +23,17 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Download, verify, and install Spawnr's versioned runtime.
+    Setup {
+        /// Use a runtime lock from disk instead of the one embedded in the release CLI.
+        #[arg(long, value_name = "PATH")]
+        runtime_lock: Option<PathBuf>,
+
+        /// Install a local runtime archive instead of downloading it.
+        #[arg(long, value_name = "PATH")]
+        runtime_archive: Option<PathBuf>,
+    },
+
     /// Create a development computer without a repository.
     Init {
         name: String,
@@ -71,7 +82,7 @@ pub enum Command {
         force: bool,
     },
 
-    /// Check host requirements without changing anything.
+    /// Verify host capabilities and the installed Spawnr runtime.
     Doctor {
         #[arg(long)]
         json: bool,
