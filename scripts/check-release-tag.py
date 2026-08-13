@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import pathlib
 import re
@@ -22,6 +23,20 @@ def load_json(path: pathlib.Path) -> dict:
     if not isinstance(value, dict):
         fail(f"{path} is not a JSON object")
     return value
+
+
+def require_file(path: pathlib.Path) -> pathlib.Path:
+    if not path.is_file():
+        fail(f"candidate has no required asset {path.name}")
+    return path
+
+
+def sha256(path: pathlib.Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while block := source.read(1024 * 1024):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def main() -> None:
@@ -54,9 +69,26 @@ def main() -> None:
     declared_version = workspace.get("workspace", {}).get("package", {}).get("version")
     if declared_version != cli_version:
         fail(f"tag version {cli_version} differs from Cargo version {declared_version}")
-    cli = artifacts / f"spawnr-{cli_version}-x86_64-linux"
-    if not cli.is_file():
-        fail(f"candidate has no version-matched CLI {cli.name}")
+    cli = require_file(artifacts / f"spawnr-{cli_version}-x86_64-linux")
+    require_file(artifacts / f"spawnr_{cli_version}-1_amd64.deb")
+    require_file(artifacts / f"spawnr-{cli_version}-1.x86_64.rpm")
+    license_file = require_file(artifacts / "LICENSE")
+    pkgbuild = require_file(artifacts / "PKGBUILD").read_text(encoding="utf-8")
+    srcinfo = require_file(artifacts / "spawnr-bin.SRCINFO").read_text(
+        encoding="utf-8"
+    )
+    if f"pkgver={cli_version}\n" not in pkgbuild:
+        fail("AUR PKGBUILD version differs from the CLI tag")
+    expected_url = (
+        f"https://github.com/spawnr-dev/spawnr/releases/download/v{cli_version}/"
+        f"spawnr-{cli_version}-x86_64-linux"
+    )
+    if expected_url not in srcinfo:
+        fail("AUR .SRCINFO does not use the versioned CLI release asset")
+    if f"sha256sums_x86_64 = {sha256(cli)}" not in srcinfo:
+        fail("AUR .SRCINFO is not pinned to the candidate CLI digest")
+    if f"sha256sums_x86_64 = {sha256(license_file)}" not in srcinfo:
+        fail("AUR .SRCINFO is not pinned to the candidate licence digest")
 
     committed_lock_path = pathlib.Path("release/runtime.lock.json")
     if not committed_lock_path.is_file():

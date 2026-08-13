@@ -613,6 +613,88 @@
             touch -h -d '@1' "$out" "$out/install.sh"
           '';
 
+      nativePackages =
+        pkgs.runCommand "spawnr-native-packages-0.1.0-x86_64-linux"
+          {
+            nativeBuildInputs = [
+              pkgs.coreutils
+              pkgs.cpio
+              pkgs.dpkg
+              pkgs.gnugrep
+              pkgs.gnused
+              pkgs.gnutar
+              pkgs.nfpm
+              pkgs.pacman
+              pkgs.rpm
+            ];
+            meta = commonRust.meta // {
+              description = "Reproducible deb, rpm, and AUR metadata for Spawnr";
+            };
+          }
+          ''
+            mkdir -p "$out"
+            {
+              printf 'Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/\n'
+              printf 'Upstream-Name: Spawnr\n'
+              printf 'Source: https://github.com/spawnr-dev/spawnr\n\n'
+              printf 'Files: *\n'
+              printf 'Copyright: 2026 Mathias Vandaele\n'
+              printf 'License: Apache-2.0\n'
+              sed 's/^/ /' ${source}/LICENSE
+            } > "$TMPDIR/debian-copyright"
+            substitute ${source}/packaging/nfpm.yaml.in "$TMPDIR/nfpm.yaml" \
+              --replace-fail '@SPAWNR_VERSION@' '0.1.0' \
+              --replace-fail '@SPAWNR_CLI@' '${spawnrStatic}/bin/spawnr' \
+              --replace-fail '@SPAWNR_LICENSE@' '${source}/LICENSE' \
+              --replace-fail '@SPAWNR_DEBIAN_COPYRIGHT@' "$TMPDIR/debian-copyright" \
+              --replace-fail '@SPAWNR_README@' '${source}/README.md'
+
+            export SOURCE_DATE_EPOCH=1
+            cp ${pkgs.pacman}/etc/makepkg.conf "$TMPDIR/makepkg.conf"
+            export MAKEPKG_CONF="$TMPDIR/makepkg.conf"
+            for attempt in one two; do
+              mkdir "$TMPDIR/$attempt"
+              nfpm package \
+                --config "$TMPDIR/nfpm.yaml" \
+                --packager deb \
+                --target "$TMPDIR/$attempt/spawnr_0.1.0-1_amd64.deb"
+              nfpm package \
+                --config "$TMPDIR/nfpm.yaml" \
+                --packager rpm \
+                --target "$TMPDIR/$attempt/spawnr-0.1.0-1.x86_64.rpm"
+            done
+            cmp "$TMPDIR/one/spawnr_0.1.0-1_amd64.deb" "$TMPDIR/two/spawnr_0.1.0-1_amd64.deb"
+            cmp "$TMPDIR/one/spawnr-0.1.0-1.x86_64.rpm" "$TMPDIR/two/spawnr-0.1.0-1.x86_64.rpm"
+            install -m0444 \
+              "$TMPDIR/one/spawnr_0.1.0-1_amd64.deb" \
+              "$out/spawnr_0.1.0-1_amd64.deb"
+            install -m0444 \
+              "$TMPDIR/one/spawnr-0.1.0-1.x86_64.rpm" \
+              "$out/spawnr-0.1.0-1.x86_64.rpm"
+
+            cli_sha=$(sha256sum ${spawnrStatic}/bin/spawnr | cut --delimiter=' ' --fields=1)
+            license_sha=$(sha256sum ${source}/LICENSE | cut --delimiter=' ' --fields=1)
+            substitute ${source}/packaging/PKGBUILD.in "$out/PKGBUILD" \
+              --replace-fail '@SPAWNR_VERSION@' '0.1.0' \
+              --replace-fail '@SPAWNR_CLI_SHA256@' "$cli_sha" \
+              --replace-fail '@SPAWNR_LICENSE_SHA256@' "$license_sha"
+            chmod 0444 "$out/PKGBUILD"
+            (
+              cd "$out"
+              makepkg --config "$MAKEPKG_CONF" --printsrcinfo
+            ) > "$out/.SRCINFO"
+            chmod 0444 "$out/.SRCINFO"
+
+            ${source}/scripts/check-native-packages.sh \
+              ${spawnrStatic}/bin/spawnr \
+              ${source}/LICENSE \
+              "$out/spawnr_0.1.0-1_amd64.deb" \
+              "$out/spawnr-0.1.0-1.x86_64.rpm" \
+              "$out/PKGBUILD" \
+              "$out/.SRCINFO"
+            find "$out" -exec touch -h -d '@1' {} +
+          '';
+
       releaseArtifacts =
         pkgs.runCommand "spawnr-release-artifacts-0.1.0-x86_64-linux"
           {
@@ -648,6 +730,10 @@
             install -m0444 ${runtimeArchive}/runtime-metadata.json "$out/runtime-metadata.json"
             install -m0444 ${runtimeLockCandidate}/runtime.lock.json "$out/runtime.lock.json"
             install -m0555 ${releaseInstaller}/install.sh "$out/install.sh"
+            install -m0444 ${nativePackages}/spawnr_0.1.0-1_amd64.deb "$out/spawnr_0.1.0-1_amd64.deb"
+            install -m0444 ${nativePackages}/spawnr-0.1.0-1.x86_64.rpm "$out/spawnr-0.1.0-1.x86_64.rpm"
+            install -m0444 ${nativePackages}/PKGBUILD "$out/PKGBUILD"
+            install -m0444 ${nativePackages}/.SRCINFO "$out/spawnr-bin.SRCINFO"
             install -m0444 ${sourceMetadata} "$out/runtime-sources.json"
             install -m0444 ${source}/LICENSE "$out/LICENSE"
 
@@ -739,10 +825,14 @@
                 install.sh \
                 THIRD-PARTY-LICENSES.txt \
                 THIRD-PARTY-NOTICES.md \
+                PKGBUILD \
                 runtime-metadata.json \
                 runtime.lock.json \
                 runtime-sources.json \
                 spawnr-0.1.0-x86_64-linux \
+                spawnr-0.1.0-1.x86_64.rpm \
+                spawnr_0.1.0-1_amd64.deb \
+                spawnr-bin.SRCINFO \
                 spawnr-runtime-0.1.0-x86_64-linux.spdx.json \
                 spawnr-runtime-0.1.0-x86_64-linux.tar.zst \
                 > SHA256SUMS
@@ -804,6 +894,7 @@
               .github/workflows/*.yml
             shellcheck \
               scripts/ci-kvm-release.sh \
+              scripts/check-native-packages.sh \
               scripts/installer-fake-curl.sh \
               scripts/test-installer.sh
             python -m py_compile scripts/check-release-tag.py
@@ -837,6 +928,7 @@
         runtime-archive = runtimeArchive;
         runtime-lock-candidate = runtimeLockCandidate;
         installer = releaseInstaller;
+        native-packages = nativePackages;
         release-artifacts = releaseArtifacts;
       };
 
@@ -857,6 +949,7 @@
           runtimeArchive
           runtimeLockCandidate
           releaseInstaller
+          nativePackages
           releaseArtifacts
           spawnrBundle
           ;

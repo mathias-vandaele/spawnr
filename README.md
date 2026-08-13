@@ -129,13 +129,30 @@ $ ./result/bin/spawnr doctor
 agent and BusyBox, a matched guest kernel/initramfs, Cloud Hypervisor, and the
 OCI/network/filesystem tools. It does not introduce a Docker daemon. Enter the
 same pinned Rust 1.88 development environment with `nix develop`; Nix remains
-optional for users of future native packages.
+optional for users of native packages.
+
+The same CLI release is available as `spawnr_<version>-1_amd64.deb`,
+`spawnr-<version>-1.x86_64.rpm`, and an AUR `spawnr-bin` `PKGBUILD`. These
+packages install only the static CLI; they do not run networked post-install
+scripts or depend on distribution copies of the Spawnr runtime. In every
+channel, initialization remains explicit:
+
+```console
+$ sudo apt install ./spawnr_0.1.0-1_amd64.deb
+# or: sudo dnf install ./spawnr-0.1.0-1.x86_64.rpm
+
+$ spawnr setup
+$ spawnr doctor
+```
+
+After the separate AUR repository is published, Arch users install
+`spawnr-bin` with their normal AUR workflow, then run the same two commands.
 
 Release maintainers can build the portable musl CLI and complete candidate
 artifact directory with `nix build .#spawnr-static` and
-`nix build .#release-artifacts`. The latter includes the deterministic runtime
-archive and candidate lock embedded in the static CLI, checksums, notices,
-source inventory, and SPDX SBOM.
+`nix build .#release-artifacts`. The latter includes the native packages,
+deterministic runtime archive and candidate lock embedded in the static CLI,
+checksums, notices, source inventory, and SPDX SBOM.
 
 The release workflow rebuilds those artifacts on two independent GitHub
 runners, requires byte equality, exercises the exact files on a protected KVM

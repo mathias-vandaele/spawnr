@@ -14,13 +14,15 @@ separate release milestone.
 
 ## Candidate release outputs
 
-The locked flake exposes four non-Nix release layers:
+The locked flake exposes these non-Nix release layers:
 
 ```console
 $ nix build .#spawnr-static
 $ nix build .#runtime-tree
 $ nix build .#runtime-archive
 $ nix build .#runtime-lock-candidate
+$ nix build .#installer
+$ nix build .#native-packages
 $ nix build .#release-artifacts
 ```
 
@@ -37,6 +39,14 @@ byte equality. `release-artifacts` collects the versioned CLI and runtime with
 SHA-256 sums, SPDX SBOM, exact source inventory, third-party notices, and
 license texts. These are candidates rather than a production release until
 the independent-builder and KVM gates below pass.
+
+`native-packages` derives a Debian package, an RPM package, and the AUR
+`spawnr-bin` metadata from the exact `spawnr-static` output. Debian and RPM
+contain `/usr/bin/spawnr`, the project licence, and README only. They declare
+no runtime dependency and contain no maintainer or transaction scripts. The
+AUR recipe downloads the immutable versioned CLI and licence assets, verifies
+both SHA-256 digests, disables stripping so the installed CLI remains
+byte-identical, and likewise performs no setup automatically.
 
 ## Version axes
 
@@ -238,6 +248,11 @@ The release workflow is deliberately split across security boundaries:
    GitHub Pages at `spawnr.dev`; runtime-only releases never alter the public
    installer channel.
 
+The CLI release also publishes the independently reproduced `.deb`, `.rpm`,
+`PKGBUILD`, and `.SRCINFO` from the same candidate. Publishing the AUR metadata
+to the separate AUR Git repository remains an explicit maintainer operation;
+the GitHub workflow does not hold an AUR SSH key.
+
 Every referenced action is pinned to a complete commit SHA. No release job
 uses Docker, a Docker socket, a registry password, or a long-lived publishing
 secret; publication uses the job-scoped GitHub token.
@@ -297,6 +312,24 @@ $ spawnr doctor
 
 Updating `https://spawnr.dev/install.sh` therefore requires a fully gated CLI
 release. The generic URL never resolves GitHub's mutable `latest` alias.
+
+## Native packages
+
+The native packages are a convenience layer over the portable CLI, not a
+second runtime policy. They never install Cloud Hypervisor, `passt`, guest
+assets, OCI tools, or a Docker daemon. After installing a `.deb`, `.rpm`, or
+the AUR `spawnr-bin` package, users run the same explicit and auditable flow:
+
+```console
+$ spawnr setup
+$ spawnr doctor
+```
+
+Nix builds both native archives twice with `SOURCE_DATE_EPOCH` fixed, requires
+byte equality, extracts each package, compares its executable with
+`spawnr-static`, executes its version command, and rejects package transaction
+scripts. It also regenerates `.SRCINFO` from `PKGBUILD` and requires byte
+equality with the published metadata.
 
 ## Host boundary
 

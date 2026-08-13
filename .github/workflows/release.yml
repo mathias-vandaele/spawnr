@@ -163,9 +163,13 @@ jobs:
               ;;
             v*)
               cp verified/LICENSE publication/
+              cp verified/PKGBUILD publication/
               cp verified/install.sh publication/
               cp verified/runtime.lock.json publication/
+              cp verified/spawnr-bin.SRCINFO publication/
+              cp verified/spawnr-*.rpm publication/
               cp verified/spawnr-*-x86_64-linux publication/
+              cp verified/spawnr_*.deb publication/
               ;;
             *) echo "unsupported release tag: $GITHUB_REF_NAME" >&2; exit 1 ;;
           esac
