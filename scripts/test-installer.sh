@@ -1,12 +1,13 @@
 #!/bin/sh
 set -eu
 
-if [ "$#" -ne 2 ]; then
-    echo 'usage: test-installer.sh INSTALLER STATIC_CLI' >&2
+if [ "$#" -ne 3 ]; then
+    echo 'usage: test-installer.sh INSTALLER STATIC_CLI VERSION' >&2
     exit 2
 fi
 installer=$(realpath -- "$1")
 cli=$(realpath -- "$2")
+version=$3
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 test_root=$(mktemp -d /tmp/spawnr-installer-test.XXXXXX)
 cleanup() {
@@ -27,7 +28,7 @@ SPAWNR_INSTALL_TEST_CLI="$cli" \
 PATH="$test_path" \
     "$installer"
 cmp -- "$cli" "$test_root/good-bin/spawnr"
-"$test_root/good-bin/spawnr" --version | grep -F 'spawnr 0.1.0'
+"$test_root/good-bin/spawnr" --version | grep -Fx "spawnr $version"
 
 cp -- "$cli" "$test_root/tampered-cli"
 chmod u+w "$test_root/tampered-cli"

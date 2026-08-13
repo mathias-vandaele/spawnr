@@ -16,8 +16,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  preflight:
+    name: Public release identity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out the release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Require the configured public repository
+        run: scripts/release-preflight.py repository "$GITHUB_REPOSITORY"
+
   build:
     name: Independent build ${{ matrix.builder }}
+    needs: preflight
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
@@ -85,7 +99,11 @@ jobs:
 
       - name: Bind candidate to the pushed tag
         if: github.ref_type == 'tag'
-        run: scripts/check-release-tag.py "${GITHUB_REF_NAME}" candidates/first
+        run: |
+          scripts/release-preflight.py candidate \
+            "${GITHUB_REF_NAME}" \
+            candidates/first \
+            --repository "$GITHUB_REPOSITORY"
 
       - name: Upload verified candidate
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
@@ -241,7 +259,6 @@ jobs:
           mkdir pages
           install -m0444 site/index.html pages/index.html
           install -m0555 verified/install.sh pages/install.sh
-          printf 'spawnr.dev\n' > pages/CNAME
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
@@ -254,3 +271,27 @@ jobs:
       - name: Deploy GitHub Pages
         id: deployment
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5
+
+  public-smoke:
+    name: Verify the public curl installer
+    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    needs: deploy-installer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out the tagged release contract
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Download the verified release installer
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: verified-release
+          path: verified
+
+      - name: Install from spawnr.dev and fetch the managed runtime
+        run: |
+          scripts/smoke-public-install.sh \
+            "${GITHUB_REF_NAME#v}" \
+            verified/install.sh

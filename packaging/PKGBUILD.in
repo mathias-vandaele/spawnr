@@ -5,14 +5,14 @@ pkgver=@SPAWNR_VERSION@
 pkgrel=1
 pkgdesc='Spawn isolated, reproducible KVM development computers'
 arch=('x86_64')
-url='https://spawnr.dev'
+url='@SPAWNR_WEBSITE@'
 license=('Apache-2.0')
 provides=('spawnr')
 conflicts=('spawnr')
 options=('!strip')
 source_x86_64=(
-  "spawnr-${pkgver}-x86_64-linux::https://github.com/spawnr-dev/spawnr/releases/download/v${pkgver}/spawnr-${pkgver}-x86_64-linux"
-  "LICENSE::https://github.com/spawnr-dev/spawnr/releases/download/v${pkgver}/LICENSE"
+  "spawnr-${pkgver}-x86_64-linux::https://github.com/@SPAWNR_REPOSITORY@/releases/download/v${pkgver}/spawnr-${pkgver}-x86_64-linux"
+  "LICENSE::https://github.com/@SPAWNR_REPOSITORY@/releases/download/v${pkgver}/LICENSE"
 )
 sha256sums_x86_64=(
   '@SPAWNR_CLI_SHA256@'

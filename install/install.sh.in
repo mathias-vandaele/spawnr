@@ -2,7 +2,7 @@
 set -eu
 
 version='@SPAWNR_VERSION@'
-repository='spawnr-dev/spawnr'
+repository='@SPAWNR_REPOSITORY@'
 cli_sha256='@SPAWNR_CLI_SHA256@'
 cli_size_bytes='@SPAWNR_CLI_SIZE@'
 cli_file="spawnr-${version}-x86_64-linux"

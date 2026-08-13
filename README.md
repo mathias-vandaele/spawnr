@@ -156,7 +156,9 @@ checksums, notices, source inventory, and SPDX SBOM.
 
 The release workflow rebuilds those artifacts on two independent GitHub
 runners, requires byte equality, exercises the exact files on a protected KVM
-runner, and only then permits an attested immutable GitHub Release. See the
+runner, and only then permits an attested immutable GitHub Release. A CLI
+release finishes by installing again from the live `spawnr.dev` URL and
+fetching its pinned runtime. See the
 [release contract](docs/releases.md#github-actions-release-gates) for the
 repository settings and two-tag publication sequence.
 

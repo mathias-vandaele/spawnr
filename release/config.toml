@@ -1,0 +1,6 @@
+repository = "spawnr-dev/spawnr"
+website = "https://spawnr.dev"
+target = "x86_64-linux"
+runtime_version = "0.1.0"
+cli_minimum = "0.1.0"
+cli_maximum_exclusive = "0.2.0"

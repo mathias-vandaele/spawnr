@@ -57,10 +57,21 @@ Three versions change independently:
 - the guest control protocol is the integer `PROTOCOL_VERSION` shared by the
   host and agent crates.
 
+The guest agent and protocol crates keep explicit package versions instead of
+inheriting the CLI workspace version. Therefore a CLI-only version bump does
+not rewrite runtime component metadata; an agent, boot, kernel, or bundled-tool
+change still requires a new runtime version and lock.
+
 A CLI patch may keep using an existing runtime. For example, CLI `0.1.1` may
 continue to use runtime `0.1.0`. A runtime declares a half-open supported CLI
 range: `minimum <= CLI < maximum_exclusive`. V1 requires an exact protocol
 version match and supports only `x86_64-linux`.
+
+`release/config.toml` is the source of truth for the public GitHub repository,
+website, target, runtime version, and compatible CLI interval. `Cargo.toml`
+remains the source of truth for the CLI version. The flake reads both files;
+the release preflight rejects a disagreement instead of publishing internally
+consistent artifacts at the wrong repository or URL.
 
 ## Contract files
 
@@ -231,22 +242,30 @@ job.
 
 The release workflow is deliberately split across security boundaries:
 
-1. Two fresh `ubuntu-24.04` jobs independently build `release-artifacts`.
-2. A third job verifies both checksum sets and requires recursive byte
+1. A cheap preflight requires `GITHUB_REPOSITORY` to equal the public identity
+   in `release/config.toml` before any expensive build starts.
+2. Two fresh `ubuntu-24.04` jobs independently build `release-artifacts`.
+3. A third job verifies both checksum sets and requires recursive byte
    equality. For a tag, it also binds runtime tags to the generated lock and
    CLI tags to the Cargo version plus committed runtime lock.
-3. A self-hosted runner carrying the labels `linux`, `x64`, and `spawnr-kvm`
+4. A self-hosted runner carrying the labels `linux`, `x64`, and `spawnr-kvm`
    installs the exact verified archive with the exact static CLI, runs
    `doctor`, then executes the critical clone/open/crash/restart/publish/
    reimport/rollback KVM scenario.
-4. Only the final `release` environment job receives `contents: write`, OIDC,
+5. Only the final `release` environment job receives `contents: write`, OIDC,
    and attestation permissions. It reverifies checksums, creates provenance
    attestations, selects only the assets belonging to that runtime or CLI
    channel, uploads them to a draft release, and publishes the draft only
    after every upload succeeds.
-5. A successful CLI release deploys its checksum-pinned `install.sh` to
+6. A successful CLI release deploys its checksum-pinned `install.sh` to
    GitHub Pages at `spawnr.dev`; runtime-only releases never alter the public
    installer channel.
+7. The final job downloads that public URL, requires it to be byte-identical
+   to the verified candidate, runs the same installer a user receives, checks
+   the installed version, executes `spawnr setup` twice, and requires
+   `spawnr doctor --json` to report a healthy managed runtime.
+   Host KVM may be unavailable on this smoke runner; the protected KVM job is
+   authoritative for virtualization.
 
 The CLI release also publishes the independently reproduced `.deb`, `.rpm`,
 `PKGBUILD`, and `.SRCINFO` from the same candidate. Publishing the AUR metadata
@@ -260,6 +279,9 @@ secret; publication uses the job-scoped GitHub token.
 Repository configuration is part of the release boundary and cannot be
 expressed fully in source:
 
+- host or transfer the project at the exact repository named by
+  `release/config.toml` (`spawnr-dev/spawnr` for V1); the workflow refuses to
+  publish from a personal fork or differently named repository;
 - enable GitHub immutable releases before the first public release;
 - configure GitHub Pages to deploy through Actions and verify the
   `spawnr.dev` custom domain in repository settings;
@@ -274,6 +296,43 @@ expressed fully in source:
 The KVM fixture is a public, digest-pinned `linux/amd64` development image, so
 the gate does not depend on mutable OCI tags.
 
+For an Actions-based Pages deployment, the custom domain is configured in
+GitHub repository settings and DNS, not through a generated `CNAME` file. DNS
+and certificate provisioning must be complete before the first CLI tag, or
+the post-release public installer smoke will fail visibly.
+
+## First public release preflight
+
+Before creating any public tag, build the candidate from a clean checkout and
+run the same binding check used by GitHub Actions:
+
+```console
+$ nix flake check
+$ nix build .#release-artifacts
+$ scripts/release-preflight.py candidate runtime-v0.1.0 result \
+    --check-remote --require-clean
+```
+
+The preflight verifies the configured public identity, local `origin`, clean
+worktree, complete SHA-256 set, runtime archive against its lock, release URL,
+and tag/version binding. For a CLI tag, use `v<CLI_VERSION>`; it additionally
+requires the exact independently published lock at
+`release/runtime.lock.json`, and verifies the CLI, installer, Debian, RPM, and
+AUR versions and digests.
+
+The first release is intentionally blocked until all of these external items
+are true:
+
+- the canonical repository is `spawnr-dev/spawnr` and local `origin` points
+  to it;
+- Actions Pages serves `https://spawnr.dev` with HTTPS enforced;
+- immutable releases and protected `v*`/`runtime-v*` tags are enabled;
+- `kvm-release` and `release` environments require approval;
+- the isolated `spawnr-kvm` runner is online and has no unrelated secrets;
+- `release/runtime.lock.json` is absent for the first runtime tag, then added
+  only from the independently reproduced immutable runtime release before the
+  CLI tag.
+
 ## Public release sequence
 
 For a runtime-changing release:
@@ -286,11 +345,15 @@ For a runtime-changing release:
    equals `nix build .#runtime-lock-candidate`, and commit it as
    `release/runtime.lock.json` without changing runtime inputs.
 4. Re-run all checks, create `v<CLI_VERSION>` on that commit, and approve the
-   user-facing release. The tag checker refuses publication unless the
+   user-facing release. The release preflight refuses publication unless the
    committed lock exactly equals the independently reproduced candidate.
 
 For a CLI-only patch, keep `release/runtime.lock.json` unchanged and create the
 new CLI tag after the normal candidate and KVM gates.
+
+Tags are never reused. If a public smoke or user-visible behavior fails after
+publication, fix the channel or code and publish a new patch version; do not
+replace an immutable asset.
 
 ## Bootstrap installer
 
@@ -312,6 +375,34 @@ $ spawnr doctor
 
 Updating `https://spawnr.dev/install.sh` therefore requires a fully gated CLI
 release. The generic URL never resolves GitHub's mutable `latest` alias.
+
+## Upgrade, rollback, and removal
+
+Upgrade uses the same public entry point as first installation:
+
+```console
+$ curl -fsSL https://spawnr.dev/install.sh | sh
+$ spawnr setup
+$ spawnr doctor
+```
+
+The installer atomically replaces only the CLI. `setup` then installs and
+activates the exact runtime embedded in that CLI; versioned older runtime
+directories are retained. Native-package users upgrade through their package
+manager and run the same explicit `setup` and `doctor` stages.
+
+Rollback is an explicit version choice, never a mutable `latest` lookup. Stop
+machines first, preserve the Spawnr data directory, download `install.sh` from
+the desired immutable `v<VERSION>` GitHub release, inspect it, run it, then run
+that CLI's `setup` and `doctor`. A rollback is supported only when the older
+CLI understands the existing state and image formats; otherwise restore the
+matching data backup or move forward with a patch release.
+
+Removal is deliberately not hidden inside the network installer. Stop and
+remove machines through Spawnr, remove the single installed CLI from the
+chosen installation directory, and remove the Spawnr data directory only if
+the user explicitly intends to destroy cached OCI data, runtimes, disks, and
+machine state.
 
 ## Native packages
 

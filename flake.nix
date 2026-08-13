@@ -23,6 +23,20 @@
       };
       lib = pkgs.lib;
 
+      workspaceManifest = builtins.fromTOML (builtins.readFile ./Cargo.toml);
+      agentManifest = builtins.fromTOML (builtins.readFile ./crates/spawnr-agent/Cargo.toml);
+      releaseConfig = builtins.fromTOML (builtins.readFile ./release/config.toml);
+      cliVersion = workspaceManifest.workspace.package.version;
+      agentVersion = agentManifest.package.version;
+      repository = releaseConfig.repository;
+      repositoryUrl = "https://github.com/${repository}";
+      website = releaseConfig.website;
+      websiteDomain = lib.removePrefix "https://" website;
+      target = releaseConfig.target;
+      runtimeVersion = releaseConfig.runtime_version;
+      cliMinimum = releaseConfig.cli_minimum;
+      cliMaximumExclusive = releaseConfig.cli_maximum_exclusive;
+
       # rust-toolchain.toml is the single source of truth for the compiler,
       # components, and guest musl target used by Cargo and Nix builds.
       rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
@@ -55,13 +69,13 @@
       };
 
       commonRust = {
-        version = "0.1.0";
+        version = cliVersion;
         src = source;
         cargoLock.lockFile = ./Cargo.lock;
         nativeBuildInputs = [ pkgs.pkg-config ];
         strictDeps = true;
         meta = {
-          homepage = "https://github.com/spawnr-dev/spawnr";
+          homepage = repositoryUrl;
           license = lib.licenses.asl20;
           platforms = [ system ];
         };
@@ -93,6 +107,7 @@
         commonRust
         // {
           pname = "spawnr-agent";
+          version = agentVersion;
           doCheck = false;
           CARGO_BUILD_TARGET = muslTarget;
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER = muslLinker;
@@ -236,11 +251,11 @@
         };
       };
 
-      sourceMetadata = pkgs.writeText "spawnr-runtime-sources-0.1.0.json" (
+      sourceMetadata = pkgs.writeText "spawnr-runtime-sources-${runtimeVersion}.json" (
         builtins.toJSON {
           schema_version = 1;
-          runtime_version = "0.1.0";
-          target = "x86_64-linux";
+          runtime_version = runtimeVersion;
+          inherit target;
           nixpkgs = {
             revision = nixpkgs.rev;
             nar_hash = nixpkgs.narHash;
@@ -248,8 +263,8 @@
           packages = [
             {
               name = "spawnr";
-              version = "0.1.0";
-              source_url = "https://github.com/spawnr-dev/spawnr/tree/v0.1.0";
+              version = cliVersion;
+              source_url = "${repositoryUrl}/tree/runtime-v${runtimeVersion}";
               source_hash = "release-tag-and-attestation";
               license_expression = "Apache-2.0";
             }
@@ -340,7 +355,7 @@
         let
           static = pkgs.pkgsStatic;
         in
-        pkgs.runCommand "spawnr-runtime-tree-0.1.0-x86_64-linux"
+        pkgs.runCommand "spawnr-runtime-tree-${runtimeVersion}-${target}"
           {
             nativeBuildInputs = [
               pkgs.binutils
@@ -441,12 +456,12 @@
                 {name: "e2fsck", version: $e2fsprogs, kind: "host_executable", path: "bin/e2fsck", launcher: {kind: "direct"}},
                 {name: "fuse2fs", version: $e2fsprogs, kind: "host_executable", path: "bin/fuse2fs", launcher: {kind: "direct"}},
                 {name: "fusermount3", version: $fuse3, kind: "host_executable", path: "bin/fusermount3", launcher: {kind: "direct"}},
-                {name: "guest-initramfs", version: "0.1.0", kind: "guest_initramfs", path: "guest/initramfs"},
+                {name: "guest-initramfs", version: "${runtimeVersion}", kind: "guest_initramfs", path: "guest/initramfs"},
                 {name: "guest-kernel", version: $kernel, kind: "guest_kernel", path: "guest/vmlinux"},
                 {name: "mkfs-ext4", version: $e2fsprogs, kind: "host_executable", path: "bin/mkfs.ext4", launcher: {kind: "direct"}},
                 {name: "passt", version: $passt, kind: "host_executable", path: "bin/passt", launcher: {kind: "direct"}},
                 {name: "skopeo", version: $skopeo, kind: "host_executable", path: "bin/skopeo", launcher: {kind: "direct"}},
-                {name: "spawnr-agent", version: "0.1.0", kind: "guest_executable", path: "guest/spawnr-agent"},
+                {name: "spawnr-agent", version: "${agentVersion}", kind: "guest_executable", path: "guest/spawnr-agent"},
                 {name: "umoci", version: $umoci, kind: "host_executable", path: "bin/umoci", launcher: {kind: "direct"}},
                 {name: "unshare", version: $utilLinux, kind: "host_executable", path: "bin/unshare", launcher: {kind: "direct"}}
               ]')
@@ -456,10 +471,10 @@
               --slurpfile files "$files_json" \
               '{
                 schema_version: 1,
-                runtime_version: "0.1.0",
-                target: "x86_64-linux",
+                runtime_version: "${runtimeVersion}",
+                target: "${target}",
                 protocol_version: 1,
-                cli_compatibility: {minimum: "0.1.0", maximum_exclusive: "0.2.0"},
+                cli_compatibility: {minimum: "${cliMinimum}", maximum_exclusive: "${cliMaximumExclusive}"},
                 components: $components,
                 files: $files[0]
               }' > "$out/manifest.json"
@@ -472,7 +487,7 @@
           '';
 
       runtimeArchive =
-        pkgs.runCommand "spawnr-runtime-0.1.0-x86_64-linux-archive"
+        pkgs.runCommand "spawnr-runtime-${runtimeVersion}-${target}-archive"
           {
             nativeBuildInputs = [
               pkgs.coreutils
@@ -487,7 +502,7 @@
           }
           ''
             mkdir -p "$out"
-            archive_name=spawnr-runtime-0.1.0-x86_64-linux.tar.zst
+            archive_name=spawnr-runtime-${runtimeVersion}-${target}.tar.zst
 
             make_archive() {
               destination=$1
@@ -546,7 +561,7 @@
       # transaction will only publish it after independent builders agree on
       # the runtime archive digest.
       runtimeLockCandidate =
-        pkgs.runCommand "spawnr-runtime-0.1.0-x86_64-linux-lock-candidate"
+        pkgs.runCommand "spawnr-runtime-${runtimeVersion}-${target}-lock-candidate"
           {
             nativeBuildInputs = [
               pkgs.check-jsonschema
@@ -563,15 +578,15 @@
               --slurpfile archive ${runtimeArchive}/runtime-metadata.json \
               '{
                 schema_version: 1,
-                runtime_version: "0.1.0",
-                target: "x86_64-linux",
+                runtime_version: "${runtimeVersion}",
+                target: "${target}",
                 protocol_version: 1,
-                cli_compatibility: {minimum: "0.1.0", maximum_exclusive: "0.2.0"},
-                release_tag: "runtime-v0.1.0",
+                cli_compatibility: {minimum: "${cliMinimum}", maximum_exclusive: "${cliMaximumExclusive}"},
+                release_tag: "runtime-v${runtimeVersion}",
                 archive: {
                   file_name: $archive[0].file_name,
                   format: "tar_zstd",
-                  url: ("https://github.com/spawnr-dev/spawnr/releases/download/runtime-v0.1.0/" + $archive[0].file_name),
+                  url: ("${repositoryUrl}/releases/download/runtime-v${runtimeVersion}/" + $archive[0].file_name),
                   size_bytes: $archive[0].size_bytes,
                   sha256: $archive[0].sha256,
                   manifest_sha256: $archive[0].manifest_sha256
@@ -584,7 +599,7 @@
           '';
 
       releaseInstaller =
-        pkgs.runCommand "spawnr-installer-0.1.0"
+        pkgs.runCommand "spawnr-installer-${cliVersion}"
           {
             nativeBuildInputs = [
               pkgs.coreutils
@@ -600,7 +615,8 @@
             cli_sha=$(sha256sum ${spawnrStatic}/bin/spawnr | cut --delimiter=' ' --fields=1)
             cli_size=$(stat --format=%s ${spawnrStatic}/bin/spawnr)
             substitute ${source}/install/install.sh.in "$out/install.sh" \
-              --replace-fail '@SPAWNR_VERSION@' '0.1.0' \
+              --replace-fail '@SPAWNR_VERSION@' '${cliVersion}' \
+              --replace-fail '@SPAWNR_REPOSITORY@' '${repository}' \
               --replace-fail '@SPAWNR_CLI_SHA256@' "$cli_sha" \
               --replace-fail '@SPAWNR_CLI_SIZE@' "$cli_size"
             grep -F "cli_sha256='$cli_sha'" "$out/install.sh"
@@ -609,12 +625,13 @@
             chmod 0555 "$out/install.sh"
             ${source}/scripts/test-installer.sh \
               "$out/install.sh" \
-              ${spawnrStatic}/bin/spawnr
+              ${spawnrStatic}/bin/spawnr \
+              '${cliVersion}'
             touch -h -d '@1' "$out" "$out/install.sh"
           '';
 
       nativePackages =
-        pkgs.runCommand "spawnr-native-packages-0.1.0-x86_64-linux"
+        pkgs.runCommand "spawnr-native-packages-${cliVersion}-${target}"
           {
             nativeBuildInputs = [
               pkgs.coreutils
@@ -636,14 +653,17 @@
             {
               printf 'Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/\n'
               printf 'Upstream-Name: Spawnr\n'
-              printf 'Source: https://github.com/spawnr-dev/spawnr\n\n'
+              printf 'Source: ${repositoryUrl}\n\n'
               printf 'Files: *\n'
               printf 'Copyright: 2026 Mathias Vandaele\n'
               printf 'License: Apache-2.0\n'
               sed 's/^/ /' ${source}/LICENSE
             } > "$TMPDIR/debian-copyright"
             substitute ${source}/packaging/nfpm.yaml.in "$TMPDIR/nfpm.yaml" \
-              --replace-fail '@SPAWNR_VERSION@' '0.1.0' \
+              --replace-fail '@SPAWNR_VERSION@' '${cliVersion}' \
+              --replace-fail '@SPAWNR_WEBSITE@' '${website}' \
+              --replace-fail '@SPAWNR_REPOSITORY@' '${repository}' \
+              --replace-fail '@SPAWNR_DOMAIN@' '${websiteDomain}' \
               --replace-fail '@SPAWNR_CLI@' '${spawnrStatic}/bin/spawnr' \
               --replace-fail '@SPAWNR_LICENSE@' '${source}/LICENSE' \
               --replace-fail '@SPAWNR_DEBIAN_COPYRIGHT@' "$TMPDIR/debian-copyright" \
@@ -657,25 +677,27 @@
               nfpm package \
                 --config "$TMPDIR/nfpm.yaml" \
                 --packager deb \
-                --target "$TMPDIR/$attempt/spawnr_0.1.0-1_amd64.deb"
+                --target "$TMPDIR/$attempt/spawnr_${cliVersion}-1_amd64.deb"
               nfpm package \
                 --config "$TMPDIR/nfpm.yaml" \
                 --packager rpm \
-                --target "$TMPDIR/$attempt/spawnr-0.1.0-1.x86_64.rpm"
+                --target "$TMPDIR/$attempt/spawnr-${cliVersion}-1.x86_64.rpm"
             done
-            cmp "$TMPDIR/one/spawnr_0.1.0-1_amd64.deb" "$TMPDIR/two/spawnr_0.1.0-1_amd64.deb"
-            cmp "$TMPDIR/one/spawnr-0.1.0-1.x86_64.rpm" "$TMPDIR/two/spawnr-0.1.0-1.x86_64.rpm"
+            cmp "$TMPDIR/one/spawnr_${cliVersion}-1_amd64.deb" "$TMPDIR/two/spawnr_${cliVersion}-1_amd64.deb"
+            cmp "$TMPDIR/one/spawnr-${cliVersion}-1.x86_64.rpm" "$TMPDIR/two/spawnr-${cliVersion}-1.x86_64.rpm"
             install -m0444 \
-              "$TMPDIR/one/spawnr_0.1.0-1_amd64.deb" \
-              "$out/spawnr_0.1.0-1_amd64.deb"
+              "$TMPDIR/one/spawnr_${cliVersion}-1_amd64.deb" \
+              "$out/spawnr_${cliVersion}-1_amd64.deb"
             install -m0444 \
-              "$TMPDIR/one/spawnr-0.1.0-1.x86_64.rpm" \
-              "$out/spawnr-0.1.0-1.x86_64.rpm"
+              "$TMPDIR/one/spawnr-${cliVersion}-1.x86_64.rpm" \
+              "$out/spawnr-${cliVersion}-1.x86_64.rpm"
 
             cli_sha=$(sha256sum ${spawnrStatic}/bin/spawnr | cut --delimiter=' ' --fields=1)
             license_sha=$(sha256sum ${source}/LICENSE | cut --delimiter=' ' --fields=1)
             substitute ${source}/packaging/PKGBUILD.in "$out/PKGBUILD" \
-              --replace-fail '@SPAWNR_VERSION@' '0.1.0' \
+              --replace-fail '@SPAWNR_VERSION@' '${cliVersion}' \
+              --replace-fail '@SPAWNR_WEBSITE@' '${website}' \
+              --replace-fail '@SPAWNR_REPOSITORY@' '${repository}' \
               --replace-fail '@SPAWNR_CLI_SHA256@' "$cli_sha" \
               --replace-fail '@SPAWNR_LICENSE_SHA256@' "$license_sha"
             chmod 0444 "$out/PKGBUILD"
@@ -688,15 +710,17 @@
             ${source}/scripts/check-native-packages.sh \
               ${spawnrStatic}/bin/spawnr \
               ${source}/LICENSE \
-              "$out/spawnr_0.1.0-1_amd64.deb" \
-              "$out/spawnr-0.1.0-1.x86_64.rpm" \
+              "$out/spawnr_${cliVersion}-1_amd64.deb" \
+              "$out/spawnr-${cliVersion}-1.x86_64.rpm" \
               "$out/PKGBUILD" \
-              "$out/.SRCINFO"
+              "$out/.SRCINFO" \
+              '${cliVersion}' \
+              '${repository}'
             find "$out" -exec touch -h -d '@1' {} +
           '';
 
       releaseArtifacts =
-        pkgs.runCommand "spawnr-release-artifacts-0.1.0-x86_64-linux"
+        pkgs.runCommand "spawnr-release-artifacts-${cliVersion}-${target}"
           {
             nativeBuildInputs = [
               pkgs.coreutils
@@ -709,29 +733,29 @@
           ''
             mkdir -p "$out"
             export SPAWNR_HOME="$TMPDIR/setup-test"
-            runtime_archive=${runtimeArchive}/spawnr-runtime-0.1.0-x86_64-linux.tar.zst
+            runtime_archive=${runtimeArchive}/spawnr-runtime-${runtimeVersion}-${target}.tar.zst
             ${spawnrStatic}/bin/spawnr setup --runtime-archive "$runtime_archive"
             ${spawnrStatic}/bin/spawnr setup --runtime-archive "$runtime_archive" \
               | grep -q 'already installed and verified'
-            chmod u+w "$SPAWNR_HOME/runtime/0.1.0/bin/passt"
-            printf 'corrupt\n' > "$SPAWNR_HOME/runtime/0.1.0/bin/passt"
+            chmod u+w "$SPAWNR_HOME/runtime/${runtimeVersion}/bin/passt"
+            printf 'corrupt\n' > "$SPAWNR_HOME/runtime/${runtimeVersion}/bin/passt"
             ${spawnrStatic}/bin/spawnr setup --runtime-archive "$runtime_archive"
             cmp \
               ${runtimeTree}/bin/passt \
-              "$SPAWNR_HOME/runtime/0.1.0/bin/passt"
+              "$SPAWNR_HOME/runtime/${runtimeVersion}/bin/passt"
             cmp \
               ${runtimeTree}/manifest.json \
-              "$SPAWNR_HOME/runtime/0.1.0/manifest.json"
+              "$SPAWNR_HOME/runtime/${runtimeVersion}/manifest.json"
 
-            install -m0555 ${spawnrStatic}/bin/spawnr "$out/spawnr-0.1.0-x86_64-linux"
+            install -m0555 ${spawnrStatic}/bin/spawnr "$out/spawnr-${cliVersion}-${target}"
             install -m0444 \
-              ${runtimeArchive}/spawnr-runtime-0.1.0-x86_64-linux.tar.zst \
-              "$out/spawnr-runtime-0.1.0-x86_64-linux.tar.zst"
+              ${runtimeArchive}/spawnr-runtime-${runtimeVersion}-${target}.tar.zst \
+              "$out/spawnr-runtime-${runtimeVersion}-${target}.tar.zst"
             install -m0444 ${runtimeArchive}/runtime-metadata.json "$out/runtime-metadata.json"
             install -m0444 ${runtimeLockCandidate}/runtime.lock.json "$out/runtime.lock.json"
             install -m0555 ${releaseInstaller}/install.sh "$out/install.sh"
-            install -m0444 ${nativePackages}/spawnr_0.1.0-1_amd64.deb "$out/spawnr_0.1.0-1_amd64.deb"
-            install -m0444 ${nativePackages}/spawnr-0.1.0-1.x86_64.rpm "$out/spawnr-0.1.0-1.x86_64.rpm"
+            install -m0444 ${nativePackages}/spawnr_${cliVersion}-1_amd64.deb "$out/spawnr_${cliVersion}-1_amd64.deb"
+            install -m0444 ${nativePackages}/spawnr-${cliVersion}-1.x86_64.rpm "$out/spawnr-${cliVersion}-1.x86_64.rpm"
             install -m0444 ${nativePackages}/PKGBUILD "$out/PKGBUILD"
             install -m0444 ${nativePackages}/.SRCINFO "$out/spawnr-bin.SRCINFO"
             install -m0444 ${sourceMetadata} "$out/runtime-sources.json"
@@ -767,8 +791,8 @@
                 spdxVersion: "SPDX-2.3",
                 dataLicense: "CC0-1.0",
                 SPDXID: "SPDXRef-DOCUMENT",
-                name: "spawnr-runtime-0.1.0-x86_64-linux",
-                documentNamespace: "https://spawnr.dev/sbom/runtime/0.1.0/x86_64-linux",
+                name: "spawnr-runtime-${runtimeVersion}-${target}",
+                documentNamespace: "${website}/sbom/runtime/${runtimeVersion}/${target}",
                 creationInfo: {
                   created: "1970-01-01T00:00:01Z",
                   creators: ["Tool: Spawnr-Nix-release-builder"]
@@ -776,7 +800,7 @@
                 packages: ([{
                   SPDXID: "SPDXRef-Runtime",
                   name: "spawnr-runtime",
-                  versionInfo: "0.1.0",
+                  versionInfo: "${runtimeVersion}",
                   downloadLocation: "NOASSERTION",
                   filesAnalyzed: false,
                   licenseConcluded: "NOASSERTION",
@@ -794,7 +818,7 @@
                   copyrightText: "NOASSERTION",
                   externalRefs: [{
                     referenceCategory: "OTHER",
-                    referenceType: "https://spawnr.dev/spdx/nix-source-hash",
+                    referenceType: "${website}/spdx/nix-source-hash",
                     referenceLocator: .source_hash
                   }]
                 }))),
@@ -807,11 +831,11 @@
                   relationshipType: "DEPENDS_ON",
                   relatedSpdxElement: ("SPDXRef-Package-" + (.name | gsub("[^A-Za-z0-9.-]"; "-")))
                 })))
-              }' > "$out/spawnr-runtime-0.1.0-x86_64-linux.spdx.json"
+              }' > "$out/spawnr-runtime-${runtimeVersion}-${target}.spdx.json"
 
             {
               printf '# Spawnr runtime third-party notices\n\n'
-              printf 'Runtime 0.1.0 for x86_64-linux is built from the exact Nix inputs listed below. '
+              printf 'Runtime ${runtimeVersion} for ${target} is built from the exact Nix inputs listed below. '
               printf 'NOASSERTION means that licensing is determined per source file; consult the linked source, '
               printf '`THIRD-PARTY-LICENSES.txt`, and the release SBOM.\n\n'
               jq -r '.packages[] | "- **\(.name) \(.version)** — `\(.license_expression)` — [source](\(.source_url))"' \
@@ -829,21 +853,21 @@
                 runtime-metadata.json \
                 runtime.lock.json \
                 runtime-sources.json \
-                spawnr-0.1.0-x86_64-linux \
-                spawnr-0.1.0-1.x86_64.rpm \
-                spawnr_0.1.0-1_amd64.deb \
+                spawnr-${cliVersion}-${target} \
+                spawnr-${cliVersion}-1.x86_64.rpm \
+                spawnr_${cliVersion}-1_amd64.deb \
                 spawnr-bin.SRCINFO \
-                spawnr-runtime-0.1.0-x86_64-linux.spdx.json \
-                spawnr-runtime-0.1.0-x86_64-linux.tar.zst \
+                spawnr-runtime-${runtimeVersion}-${target}.spdx.json \
+                spawnr-runtime-${runtimeVersion}-${target}.tar.zst \
                 > SHA256SUMS
             )
             chmod 0444 "$out"/*
-            chmod 0555 "$out/spawnr-0.1.0-x86_64-linux"
+            chmod 0555 "$out/spawnr-${cliVersion}-${target}"
             find "$out" -exec touch -h -d '@1' {} +
           '';
 
       spawnrBundle =
-        pkgs.runCommand "spawnr-bundle-0.1.0"
+        pkgs.runCommand "spawnr-bundle-${cliVersion}"
           {
             nativeBuildInputs = [ pkgs.makeWrapper ];
             meta = commonRust.meta // {
@@ -896,8 +920,10 @@
               scripts/ci-kvm-release.sh \
               scripts/check-native-packages.sh \
               scripts/installer-fake-curl.sh \
+              scripts/smoke-public-install.sh \
               scripts/test-installer.sh
-            python -m py_compile scripts/check-release-tag.py
+            python -m py_compile scripts/release-preflight.py
+            python scripts/test-release-preflight.py
             cargo fmt --all -- --check
             ${pkgs.check-jsonschema}/bin/check-jsonschema \
               --schemafile release/runtime-lock.schema.json \
