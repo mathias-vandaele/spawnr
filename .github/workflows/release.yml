@@ -1,0 +1,176 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "runtime-v*"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Independent build ${{ matrix.builder }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        builder:
+          - first
+          - second
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+
+      - name: Build candidate artifacts
+        run: |
+          nix build .#release-artifacts --out-link result --print-build-logs
+          mkdir candidate
+          cp --archive --dereference result/. candidate/
+
+      - name: Verify candidate checksums
+        working-directory: candidate
+        run: sha256sum --check SHA256SUMS
+
+      - name: Upload independent candidate
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: release-candidate-${{ matrix.builder }}
+          path: candidate/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  reproduce:
+    name: Reproduce and bind tag
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Download first candidate
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: release-candidate-first
+          path: candidates/first
+
+      - name: Download second candidate
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: release-candidate-second
+          path: candidates/second
+
+      - name: Require byte-identical independent outputs
+        run: |
+          (cd candidates/first && sha256sum --check SHA256SUMS)
+          (cd candidates/second && sha256sum --check SHA256SUMS)
+          diff --recursive --no-dereference candidates/first candidates/second
+
+      - name: Bind candidate to the pushed tag
+        if: github.ref_type == 'tag'
+        run: scripts/check-release-tag.py "${GITHUB_REF_NAME}" candidates/first
+
+      - name: Upload verified candidate
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: verified-release
+          path: candidates/first/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  kvm:
+    name: Exact-artifact KVM gate
+    needs: reproduce
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - spawnr-kvm
+    timeout-minutes: 60
+    environment: kvm-release
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Download verified candidate
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: verified-release
+          path: verified
+
+      - name: Run setup, doctor, and the critical KVM scenario
+        env:
+          SPAWNR_E2E_ENVIRONMENT: docker.io/library/rust@sha256:af306cfa71d987911a781c37b59d7d67d934f49684058f96cf72079c3626bfe0
+        run: scripts/ci-kvm-release.sh verified
+
+  publish:
+    name: Attest and publish
+    if: github.ref_type == 'tag'
+    needs: kvm
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: release
+    permissions:
+      actions: read
+      artifact-metadata: write
+      attestations: write
+      contents: write
+      id-token: write
+    steps:
+      - name: Download verified candidate
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: verified-release
+          path: verified
+
+      - name: Reverify the publication set
+        working-directory: verified
+        run: sha256sum --check SHA256SUMS
+
+      - name: Attest every release artifact
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: verified/*
+
+      - name: Publish immutable versioned assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$GITHUB_REF_NAME" in
+            runtime-v*) title="Spawnr runtime ${GITHUB_REF_NAME#runtime-v}" ;;
+            v*) title="Spawnr ${GITHUB_REF_NAME#v}" ;;
+            *) echo "unsupported release tag: $GITHUB_REF_NAME" >&2; exit 1 ;;
+          esac
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release already exists: $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" verified/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --generate-notes \
+            --draft \
+            --title "$title"
+          gh release edit "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft=false

@@ -760,8 +760,18 @@
         // {
           pname = "spawnr-workspace-checks";
           doCheck = false;
+          nativeBuildInputs = commonRust.nativeBuildInputs ++ [
+            pkgs.actionlint
+            pkgs.python3
+            pkgs.shellcheck
+          ];
           buildPhase = ''
             runHook preBuild
+            actionlint \
+              -config-file .github/actionlint.yaml \
+              .github/workflows/*.yml
+            shellcheck scripts/ci-kvm-release.sh
+            python -m py_compile scripts/check-release-tag.py
             cargo fmt --all -- --check
             ${pkgs.check-jsonschema}/bin/check-jsonschema \
               --schemafile release/runtime-lock.schema.json \

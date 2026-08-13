@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""Bind a generated Spawnr release candidate to its immutable Git tag."""
+
+from __future__ import annotations
+
+import json
+import pathlib
+import re
+import sys
+import tomllib
+
+
+def fail(message: str) -> "NoReturn":
+    raise SystemExit(f"release tag check failed: {message}")
+
+
+def load_json(path: pathlib.Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        fail(f"cannot read {path}: {error}")
+    if not isinstance(value, dict):
+        fail(f"{path} is not a JSON object")
+    return value
+
+
+def main() -> None:
+    if len(sys.argv) != 3:
+        fail("usage: check-release-tag.py TAG ARTIFACT_DIRECTORY")
+    tag = sys.argv[1]
+    artifacts = pathlib.Path(sys.argv[2]).resolve()
+    if not artifacts.is_dir():
+        fail(f"artifact directory does not exist: {artifacts}")
+
+    candidate_lock_path = artifacts / "runtime.lock.json"
+    candidate_lock = load_json(candidate_lock_path)
+    runtime_version = candidate_lock.get("runtime_version")
+    release_tag = candidate_lock.get("release_tag")
+    if not isinstance(runtime_version, str) or not isinstance(release_tag, str):
+        fail("candidate runtime lock has no version or release tag")
+    if release_tag != f"runtime-v{runtime_version}":
+        fail("candidate runtime release tag is inconsistent")
+
+    if tag.startswith("runtime-v"):
+        if tag != release_tag:
+            fail(f"tag {tag!r} does not match runtime lock {release_tag!r}")
+        return
+
+    match = re.fullmatch(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", tag)
+    if match is None:
+        fail(f"unsupported tag {tag!r}")
+    cli_version = tag[1:]
+    workspace = tomllib.loads(pathlib.Path("Cargo.toml").read_text(encoding="utf-8"))
+    declared_version = workspace.get("workspace", {}).get("package", {}).get("version")
+    if declared_version != cli_version:
+        fail(f"tag version {cli_version} differs from Cargo version {declared_version}")
+    cli = artifacts / f"spawnr-{cli_version}-x86_64-linux"
+    if not cli.is_file():
+        fail(f"candidate has no version-matched CLI {cli.name}")
+
+    committed_lock_path = pathlib.Path("release/runtime.lock.json")
+    if not committed_lock_path.is_file():
+        fail(
+            "CLI releases require release/runtime.lock.json; promote the independently "
+            "reproduced runtime lock first"
+        )
+    committed_lock = load_json(committed_lock_path)
+    if committed_lock != candidate_lock:
+        fail("committed runtime lock differs from the reproduced candidate lock")
+
+
+if __name__ == "__main__":
+    main()

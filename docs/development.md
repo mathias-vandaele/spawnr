@@ -151,6 +151,12 @@ The public CLI/runtime versioning, manifest, digest chain, and release
 preparation transaction are specified in [Release and runtime
 contract](releases.md).
 
+GitHub workflow changes are checked by `actionlint`; the release KVM wrapper
+is checked by ShellCheck and the tag-binding helper is syntax-checked by
+Python as part of `nix flake check`. Release workflow manual runs require a
+self-hosted runner with the `spawnr-kvm` label; normal pull-request CI does
+not.
+
 ## Build the Rust workspace
 
 With rustup and a system `musl-gcc`:

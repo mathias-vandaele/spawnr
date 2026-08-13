@@ -136,6 +136,12 @@ artifact directory with `nix build .#spawnr-static` and
 archive and candidate lock embedded in the static CLI, checksums, notices,
 source inventory, and SPDX SBOM.
 
+The release workflow rebuilds those artifacts on two independent GitHub
+runners, requires byte equality, exercises the exact files on a protected KVM
+runner, and only then permits an attested immutable GitHub Release. See the
+[release contract](docs/releases.md#github-actions-release-gates) for the
+repository settings and two-tag publication sequence.
+
 ## Basic use
 
 Create a machine without a repository:

@@ -211,6 +211,66 @@ The release workflow must refuse:
 - a manifest containing missing, duplicate, unsorted, unknown, or unsafe
   entries.
 
+## GitHub Actions release gates
+
+`.github/workflows/ci.yml` runs the complete flake check for every branch and
+pull request with read-only repository access. `.github/workflows/release.yml`
+can be exercised without publication through `workflow_dispatch`; pushing a
+`runtime-v*` or `v*` tag uses the same gates and enables the final publication
+job.
+
+The release workflow is deliberately split across security boundaries:
+
+1. Two fresh `ubuntu-24.04` jobs independently build `release-artifacts`.
+2. A third job verifies both checksum sets and requires recursive byte
+   equality. For a tag, it also binds runtime tags to the generated lock and
+   CLI tags to the Cargo version plus committed runtime lock.
+3. A self-hosted runner carrying the labels `linux`, `x64`, and `spawnr-kvm`
+   installs the exact verified archive with the exact static CLI, runs
+   `doctor`, then executes the critical clone/open/crash/restart/publish/
+   reimport/rollback KVM scenario.
+4. Only the final `release` environment job receives `contents: write`, OIDC,
+   and attestation permissions. It reverifies checksums, creates provenance
+   attestations, uploads all assets to a draft release, and publishes the
+   draft only after every upload succeeds.
+
+Every referenced action is pinned to a complete commit SHA. No release job
+uses Docker, a Docker socket, a registry password, or a long-lived publishing
+secret; publication uses the job-scoped GitHub token.
+
+Repository configuration is part of the release boundary and cannot be
+expressed fully in source:
+
+- enable GitHub immutable releases before the first public release;
+- protect `v*` and `runtime-v*` tag creation;
+- configure `kvm-release` and `release` environments with required reviewers
+  and restrict them to protected release tags (the first protects access to
+  the isolated virtualization runner; the second protects publication);
+- attach an ephemeral or tightly isolated x86_64 Linux runner with KVM, FUSE,
+  user namespaces, subordinate UID/GID mappings, and the `spawnr-kvm` label;
+- do not expose unrelated repository or organization secrets to that runner.
+
+The KVM fixture is a public, digest-pinned `linux/amd64` development image, so
+the gate does not depend on mutable OCI tags.
+
+## Public release sequence
+
+For a runtime-changing release:
+
+1. Run the Release workflow manually on the intended commit. This performs
+   both independent builds and the exact-artifact KVM gate without publishing.
+2. Create and push `runtime-v<RUNTIME_VERSION>`. After approval, the workflow
+   publishes the canonical runtime archive and its candidate lock.
+3. Download `runtime.lock.json` from that immutable runtime release, verify it
+   equals `nix build .#runtime-lock-candidate`, and commit it as
+   `release/runtime.lock.json` without changing runtime inputs.
+4. Re-run all checks, create `v<CLI_VERSION>` on that commit, and approve the
+   user-facing release. The tag checker refuses publication unless the
+   committed lock exactly equals the independently reproduced candidate.
+
+For a CLI-only patch, keep `release/runtime.lock.json` unchanged and create the
+new CLI tag after the normal candidate and KVM gates.
+
 ## Host boundary
 
 Runtime files are implementation details managed by Spawnr. Kernel-backed or
