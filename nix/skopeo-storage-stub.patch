@@ -1,0 +1,15 @@
+diff --git a/vendor/go.podman.io/image/v5/storage/storage_spawnr_stub.go b/vendor/go.podman.io/image/v5/storage/storage_spawnr_stub.go
+new file mode 100644
+index 00000000..a710885d
+--- /dev/null
++++ b/vendor/go.podman.io/image/v5/storage/storage_spawnr_stub.go
+@@ -0,0 +1,9 @@
++//go:build containers_image_storage_stub
++
++package storage
++
++import "errors"
++
++// ErrNoSuchImage remains available to the CLI's generic error classifier when
++// the containers-storage transport itself is deliberately not compiled in.
++var ErrNoSuchImage = errors.New("image does not exist in local storage")

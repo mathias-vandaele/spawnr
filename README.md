@@ -122,6 +122,11 @@ OCI/network/filesystem tools. It does not introduce a Docker daemon. Enter the
 same pinned Rust 1.88 development environment with `nix develop`; Nix remains
 optional for users of future native packages.
 
+Release maintainers can build the portable musl CLI and complete candidate
+artifact directory with `nix build .#spawnr-static` and
+`nix build .#release-artifacts`. The latter includes the deterministic runtime
+archive, checksums, notices, source inventory, and SPDX SBOM.
+
 ## Basic use
 
 Create a machine without a repository:

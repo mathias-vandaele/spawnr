@@ -48,9 +48,13 @@ done < <(
 )
 
 cp --reflink=auto -- "$SPAWNR_GUEST_KERNEL" "$output_dir/vmlinux"
+find "$stage" -exec touch -h -d '@1' {} +
 (
   cd "$stage"
-  find . -print0 | cpio --null -o --format=newc --quiet | gzip -9 > "$output_dir/initramfs"
+  find . -print0 \
+    | LC_ALL=C sort --zero-terminated \
+    | cpio --null -o --format=newc --quiet --reproducible \
+    | gzip -9 --no-name > "$output_dir/initramfs"
 )
 chmod 0644 "$output_dir/vmlinux" "$output_dir/initramfs"
 echo "built $output_dir/vmlinux and $output_dir/initramfs"

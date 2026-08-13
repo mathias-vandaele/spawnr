@@ -95,9 +95,27 @@ Build individual outputs when iterating:
 
 ```console
 $ nix build .#spawnr
+$ nix build .#spawnr-static
 $ nix build .#spawnr-agent
 $ nix build .#guest-assets
+$ nix build .#runtime-tree
+$ nix build .#runtime-archive
+$ nix build .#release-artifacts
 ```
+
+The static CLI and managed runtime can be checked outside the Nix store with:
+
+```console
+$ nix build .#spawnr-static -o result-cli
+$ nix build .#runtime-archive -o result-runtime
+$ scripts/check-release-relocation.sh \
+    result-cli/bin/spawnr \
+    result-runtime/spawnr-runtime-0.1.0-x86_64-linux.tar.zst
+```
+
+This isolates the extracted files with Bubblewrap, verifies every manifest
+digest, rejects dynamic ELF interpreters, exercises ext4 creation/checking,
+and proves that the bundled skopeo has no Docker-daemon transport.
 
 Enter the development environment:
 

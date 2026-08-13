@@ -22,7 +22,7 @@ use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant};
 
-const KVM_GET_API_VERSION: libc::c_ulong = 0xAE00;
+const KVM_GET_API_VERSION: libc::Ioctl = 0xAE00;
 const EXPECTED_KVM_API_VERSION: libc::c_int = 12;
 const START_TIMEOUT: Duration = Duration::from_secs(5);
 const GRACEFUL_TIMEOUT: Duration = Duration::from_secs(15);

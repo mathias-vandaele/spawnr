@@ -23,7 +23,7 @@ pub const SPAWNR_OWNER: &str = "spawnr";
 const OWNER_FILE: &str = "owner.json";
 const DOMAIN_FILE: &str = "domain.json";
 const MIN_EXT4_BYTES: u64 = 16 * 1024 * 1024;
-const FICLONE: libc::c_ulong = 0x4004_9409;
+const FICLONE: libc::Ioctl = 0x4004_9409;
 
 /// Default sparse image capacities. Actual host allocation grows on demand.
 pub const DEFAULT_ENVIRONMENT_BYTES: u64 = 32 * 1024 * 1024 * 1024;

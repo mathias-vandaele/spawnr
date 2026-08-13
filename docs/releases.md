@@ -8,8 +8,34 @@ the distribution channel for non-Nix installations.
 static Spawnr CLI -> pinned runtime archive -> Linux host capabilities
 ```
 
-This document fixes the V1 contract. Runtime construction, `spawnr setup`, and
-the GitHub Actions workflows are implemented in later milestones.
+This document fixes the V1 contract. The flake constructs candidate release
+artifacts; `spawnr setup` and the GitHub Actions publication workflows are
+implemented in later milestones.
+
+## Candidate release outputs
+
+The locked flake exposes four non-Nix release layers:
+
+```console
+$ nix build .#spawnr-static
+$ nix build .#runtime-tree
+$ nix build .#runtime-archive
+$ nix build .#release-artifacts
+```
+
+The release CLI is a stripped static PIE built against musl. The runtime uses
+static executables throughout, so V1 does not need its optional ELF-loader
+launcher form. Its skopeo build supports registry and OCI-layout transports
+but deliberately omits the Docker daemon and containers-storage transports.
+
+`runtime-tree` creates the sorted manifest from the actual files and validates
+it with both the public JSON Schema and the Rust semantic contract.
+`runtime-archive` normalizes file order, ownership, modes, mtimes, tar format,
+and single-threaded zstd compression; it builds the archive twice and requires
+byte equality. `release-artifacts` collects the versioned CLI and runtime with
+SHA-256 sums, SPDX SBOM, exact source inventory, third-party notices, and
+license texts. These are candidates rather than a production release until
+the independent-builder and KVM gates below pass.
 
 ## Version axes
 
