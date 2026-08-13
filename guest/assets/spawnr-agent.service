@@ -1,0 +1,26 @@
+[Unit]
+Description=Spawnr guest control plane
+Documentation=https://github.com/spawnr-dev/spawnr
+After=systemd-udev-settle.service
+Wants=systemd-udev-settle.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/spawnr/machine.env
+ExecStart=/usr/libexec/spawnr-agent --initialize-workspace
+Restart=on-failure
+RestartSec=250ms
+TimeoutStartSec=30s
+TimeoutStopSec=15s
+KillMode=control-group
+StandardOutput=journal
+StandardError=journal+console
+
+# The agent deliberately needs mount, setuid and poweroff privileges. Its API
+# is reachable only over the VM's private AF_VSOCK device.
+User=root
+Group=root
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

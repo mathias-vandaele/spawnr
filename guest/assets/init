@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+
+export PATH=/bin:/sbin
+mount -t proc -o nosuid,nodev,noexec proc /proc
+mount -t sysfs -o nosuid,nodev,noexec sysfs /sys
+mount -t devtmpfs -o nosuid,mode=0755 devtmpfs /dev
+mkdir -p /dev/pts /newroot
+mount -t devpts -o nosuid,noexec,mode=0620,ptmxmode=0666 devpts /dev/pts
+
+for module in \
+  virtio_pci \
+  virtio_blk \
+  virtio_net \
+  virtio_console \
+  vmw_vsock_virtio_transport \
+  ext4 \
+  af_packet; do
+  modprobe "$module"
+done
+
+mount -t ext4 -o rw,noatime /dev/vda /newroot
+mkdir -p /newroot/dev /newroot/proc /newroot/sys
+mount --move /dev /newroot/dev
+mount --move /proc /newroot/proc
+mount --move /sys /newroot/sys
+exec switch_root /newroot /usr/libexec/spawnr-agent --initialize-workspace

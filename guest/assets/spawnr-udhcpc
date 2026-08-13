@@ -1,0 +1,40 @@
+#!/usr/libexec/spawnr-busybox sh
+# Minimal udhcpc hook for Spawnr's passt-backed virtio network.
+set -eu
+
+case "${1:-}" in
+  deconfig)
+    /usr/libexec/spawnr-busybox ip addr flush dev "$interface"
+    ;;
+  bound|renew)
+    /usr/libexec/spawnr-busybox ip addr flush dev "$interface"
+    prefix=${mask:-24}
+    case "$prefix" in
+      *.*)
+        prefix_bits=0
+        old_ifs=$IFS
+        IFS=.
+        set -- $prefix
+        IFS=$old_ifs
+        for octet in "$@"; do
+          case "$octet" in
+            255) bits=8 ;; 254) bits=7 ;; 252) bits=6 ;; 248) bits=5 ;;
+            240) bits=4 ;; 224) bits=3 ;; 192) bits=2 ;; 128) bits=1 ;;
+            0) bits=0 ;; *) exit 1 ;;
+          esac
+          prefix_bits=$((prefix_bits + bits))
+        done
+        prefix=$prefix_bits
+        ;;
+    esac
+    /usr/libexec/spawnr-busybox ip addr add "$ip/$prefix" dev "$interface"
+    /usr/libexec/spawnr-busybox ip link set "$interface" up
+    if test -n "${router:-}"; then
+      /usr/libexec/spawnr-busybox ip route replace default via "${router%% *}" dev "$interface"
+    fi
+    : > /etc/resolv.conf
+    for server in ${dns:-}; do
+      printf 'nameserver %s\n' "$server" >> /etc/resolv.conf
+    done
+    ;;
+esac

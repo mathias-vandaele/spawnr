@@ -1,0 +1,8 @@
+/target/
+/.spawnr-test/
+*.img
+*.ext4
+*.sock
+*.pid
+__pycache__/
+*.py[cod]

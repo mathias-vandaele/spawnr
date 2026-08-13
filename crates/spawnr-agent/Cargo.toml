@@ -1,0 +1,20 @@
+[package]
+name = "spawnr-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+libc.workspace = true
+spawnr-protocol = { path = "../spawnr-protocol" }
+vsock = "0.5.4"
+
+[dev-dependencies]
+tempfile = "3.20.0"
+
+[[bin]]
+name = "spawnr-agent"
+path = "src/main.rs"
