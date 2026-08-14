@@ -99,7 +99,7 @@ The portable release CLI installs its matched runtime itself, then verifies
 the host and runtime separately:
 
 ```console
-$ curl -fsSL https://spawnr.dev/install.sh | sh
+$ curl -fsSL https://spawnr-cli.dev/install.sh | sh
 $ spawnr setup
 $ spawnr doctor
 ```
@@ -157,7 +157,7 @@ checksums, notices, source inventory, and SPDX SBOM.
 The release workflow rebuilds those artifacts on two independent GitHub
 runners, requires byte equality, exercises the exact files on a protected KVM
 runner, and only then permits an attested immutable GitHub Release. A CLI
-release finishes by installing again from the live `spawnr.dev` URL and
+release finishes by installing again from the live `spawnr-cli.dev` URL and
 fetching its pinned runtime. See the
 [release contract](docs/releases.md#github-actions-release-gates) for the
 repository settings and two-tag publication sequence.
@@ -217,7 +217,8 @@ open, Spawnr exposes only selected values:
 
 - `user.name`, `user.email`, and SSH signing configuration from global Git
   configuration;
-- `GH_TOKEN` or `GITHUB_TOKEN`, when set;
+- `GH_TOKEN` or `GITHUB_TOKEN`, when set, otherwise the active host `gh auth`
+  session when GitHub CLI is available;
 - public system/user SSH known-host records;
 - the capability to ask the host's `SSH_AUTH_SOCK` to sign.
 

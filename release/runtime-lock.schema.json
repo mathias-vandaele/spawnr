@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://spawnr.dev/schemas/runtime-lock-v1.json",
+  "$id": "https://spawnr-cli.dev/schemas/runtime-lock-v1.json",
   "title": "Spawnr runtime lock v1",
   "type": "object",
   "additionalProperties": false,

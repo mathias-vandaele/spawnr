@@ -228,7 +228,7 @@ jobs:
             --draft=false
 
   deploy-installer:
-    name: Deploy spawnr.dev installer
+    name: Deploy spawnr-cli.dev
     if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     needs: publish
     runs-on: ubuntu-24.04
@@ -257,8 +257,14 @@ jobs:
         run: |
           (cd verified && sha256sum --check SHA256SUMS)
           mkdir pages
-          install -m0444 site/index.html pages/index.html
+          cp --archive site/. pages/
+          mkdir -p pages/schemas
+          install -m0444 release/runtime-lock.schema.json pages/schemas/runtime-lock-v1.json
+          install -m0444 release/runtime-manifest.schema.json pages/schemas/runtime-manifest-v1.json
           install -m0555 verified/install.sh pages/install.sh
+          find pages -type d -exec chmod 0555 {} +
+          find pages -type f -exec chmod 0444 {} +
+          chmod 0555 pages/install.sh
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
@@ -290,7 +296,7 @@ jobs:
           name: verified-release
           path: verified
 
-      - name: Install from spawnr.dev and fetch the managed runtime
+      - name: Install from spawnr-cli.dev and fetch the managed runtime
         run: |
           scripts/smoke-public-install.sh \
             "${GITHUB_REF_NAME#v}" \

@@ -21,6 +21,9 @@ tar.workspace = true
 uuid.workspace = true
 zstd.workspace = true
 
+[dev-dependencies]
+tempfile = "3.20.0"
+
 [[bin]]
 name = "spawnr"
 path = "src/main.rs"

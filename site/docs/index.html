@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0a0d12">
+    <meta name="color-scheme" content="dark">
+    <title>Documentation — Spawnr</title>
+    <meta
+      name="description"
+      content="Install Spawnr, verify your Linux host, and create reproducible KVM development computers from OCI environments."
+    >
+    <link rel="canonical" href="https://spawnr-cli.dev/docs/">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Spawnr documentation">
+    <meta property="og:description" content="Install, configure, and use reproducible KVM development computers.">
+    <meta property="og:url" content="https://spawnr-cli.dev/docs/">
+    <meta property="og:image" content="https://spawnr-cli.dev/assets/spawnr-logo.png">
+    <meta property="og:image:alt" content="Spawnr documentation">
+    <meta property="og:image:width" content="1254">
+    <meta property="og:image:height" content="1254">
+    <meta name="twitter:card" content="summary">
+    <link rel="icon" type="image/png" href="../assets/spawnr-logo.png">
+    <link rel="stylesheet" href="../styles.css">
+    <script src="../app.js" defer></script>
+  </head>
+  <body class="docs-page">
+    <a class="skip-link" href="#docs-content">Skip to documentation</a>
+
+    <header class="site-header">
+      <div class="nav-shell">
+        <a class="brand" href="../" aria-label="Spawnr home">
+          <img src="../assets/spawnr-logo.png" width="42" height="42" alt="">
+          <span>spawnr</span>
+        </a>
+        <nav class="primary-nav" aria-label="Primary navigation">
+          <a href="../">Overview</a>
+          <a href="./" aria-current="page">Docs</a>
+          <a href="https://github.com/spawnr-dev/spawnr">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="docs-content" class="section-shell docs-shell">
+      <aside class="docs-sidebar" aria-label="Documentation sections">
+        <p>Getting started</p>
+        <a href="#install">Install</a>
+        <a href="#requirements">Requirements</a>
+        <a href="#first-machine">First machine</a>
+        <p>Reference</p>
+        <a href="#commands">Core commands</a>
+        <a href="#identity">Host identity</a>
+        <a href="#publishing">Publishing</a>
+        <a href="#more">Full documentation</a>
+      </aside>
+
+      <article class="docs-article">
+        <header class="docs-hero">
+          <p class="eyebrow">Documentation · early preview</p>
+          <h1>Get running with Spawnr.</h1>
+          <p>Install the portable CLI, fetch its verified runtime, and boot your first isolated development computer.</p>
+        </header>
+
+        <section id="install" class="docs-section">
+          <div class="docs-kicker">01</div>
+          <h2>Install</h2>
+          <p>The public installer downloads one static Linux x86_64 binary and verifies its exact size and SHA-256 before replacing the CLI atomically.</p>
+          <div class="code-panel">
+            <div class="code-panel-header"><span>shell</span><button class="copy-button compact" type="button" data-copy="docs-install"><span class="copy-label">Copy</span></button></div>
+            <pre><code id="docs-install">curl -fsSL https://spawnr-cli.dev/install.sh | sh
+spawnr setup
+spawnr doctor</code></pre>
+          </div>
+          <div class="callout">
+            <strong>Two-stage by design.</strong>
+            <p>The small installer only installs the CLI. <code>spawnr setup</code> then fetches the larger, versioned runtime locked into that exact release.</p>
+          </div>
+        </section>
+
+        <section id="requirements" class="docs-section">
+          <div class="docs-kicker">02</div>
+          <h2>Host requirements</h2>
+          <p>Spawnr V1 targets Linux on x86_64. The managed runtime supplies Cloud Hypervisor, passt, the guest kernel, initramfs, agent, and OCI tools.</p>
+          <div class="requirement-grid">
+            <div><span>Required</span><strong>Linux x86_64</strong><p>The first release has one portable target.</p></div>
+            <div><span>Required</span><strong>Accessible KVM</strong><p>Your user must be able to read and write <code>/dev/kvm</code>.</p></div>
+            <div><span>For publish</span><strong>FUSE + user namespaces</strong><p>Used to convert an environment filesystem safely into OCI layers.</p></div>
+          </div>
+          <p>Run <code>spawnr doctor</code> for a precise host and runtime report with remediation.</p>
+        </section>
+
+        <section id="first-machine" class="docs-section">
+          <div class="docs-kicker">03</div>
+          <h2>Create your first machine</h2>
+          <p>Start without a repository, or create independent machines and clone inside each guest.</p>
+          <div class="code-panel">
+            <div class="code-panel-header"><span>scratch machine</span><button class="copy-button compact" type="button" data-copy="docs-scratch"><span class="copy-label">Copy</span></button></div>
+            <pre><code id="docs-scratch">spawnr init scratch --environment docker.io/library/ubuntu:24.04
+spawnr start scratch
+spawnr open scratch</code></pre>
+          </div>
+          <div class="code-panel">
+            <div class="code-panel-header"><span>repository machine</span><button class="copy-button compact" type="button" data-copy="docs-clone"><span class="copy-label">Copy</span></button></div>
+            <pre><code id="docs-clone">spawnr clone \
+  ghcr.io/acme/rust-dev:v1 \
+  git@github.com:acme/project.git \
+  --count 3</code></pre>
+          </div>
+          <p>An OCI environment used by <code>clone</code> must already contain Git. SSH repository URLs also require an SSH client in the image.</p>
+        </section>
+
+        <section id="commands" class="docs-section">
+          <div class="docs-kicker">04</div>
+          <h2>Core commands</h2>
+          <div class="command-list">
+            <div><code>spawnr ls</code><p>List owned machines and their lifecycle state. Add <code>--json</code> for structured output.</p></div>
+            <div><code>spawnr start &lt;name&gt;</code><p>Boot the existing environment and workspace disks, then refresh session capabilities.</p></div>
+            <div><code>spawnr open &lt;name&gt;</code><p>Open an interactive PTY as the normal <code>dev</code> user in the repository directory.</p></div>
+            <div><code>spawnr stop &lt;name&gt;</code><p>Request a bounded guest shutdown and clean both virtualization helpers.</p></div>
+            <div><code>spawnr publish &lt;name&gt; &lt;oci-ref&gt;</code><p>Publish only the environment disk as OCI layers.</p></div>
+            <div><code>spawnr rm &lt;name&gt;</code><p>Destroy an owned machine after checking workspace cleanliness.</p></div>
+          </div>
+        </section>
+
+        <section id="identity" class="docs-section">
+          <div class="docs-kicker">05</div>
+          <h2>Host identity</h2>
+          <p>On every start or open, Spawnr exposes a bounded, sanitized set of host capabilities in session tmpfs:</p>
+          <ul class="docs-list">
+            <li><strong>Git identity:</strong> selected <code>user.name</code>, <code>user.email</code>, and SSH signing settings.</li>
+            <li><strong>SSH agent:</strong> signature requests are proxied over vsock; private key bytes stay on the host.</li>
+            <li><strong>GitHub CLI:</strong> a host <code>GH_TOKEN</code>/<code>GITHUB_TOKEN</code>, or the active <code>gh</code> session when available, becomes guest <code>GH_TOKEN</code>.</li>
+            <li><strong>Known hosts:</strong> bounded public SSH host-key records are copied with strict checking.</li>
+          </ul>
+          <div class="callout warning">
+            <strong>A forwarded agent is authority.</strong>
+            <p>Guest code cannot read your private key, but it can request signatures while the machine is running. Use constrained keys for untrusted code.</p>
+          </div>
+        </section>
+
+        <section id="publishing" class="docs-section">
+          <div class="docs-kicker">06</div>
+          <h2>Publish an environment</h2>
+          <p>Environment, workspace, and session are separate storage domains. Publishing accepts only the environment disk; source and tmpfs credentials are absent from the conversion pipeline.</p>
+          <div class="code-panel">
+            <div class="code-panel-header"><span>shell</span><button class="copy-button compact" type="button" data-copy="docs-publish"><span class="copy-label">Copy</span></button></div>
+            <pre><code id="docs-publish">spawnr publish project-1 ghcr.io/acme/rust-dev:v2</code></pre>
+          </div>
+          <p>Registry authentication is handled by the daemonless OCI tools in Spawnr's managed runtime. No Docker socket is required.</p>
+        </section>
+
+        <section id="more" class="docs-section docs-more">
+          <p class="eyebrow">Go deeper</p>
+          <h2>Full reference on GitHub.</h2>
+          <p>The repository contains the complete CLI reference, architecture, security model, development guide, and reproducible release contract.</p>
+          <div class="doc-link-grid">
+            <a href="https://github.com/spawnr-dev/spawnr/blob/master/docs/cli.md"><strong>CLI reference</strong><span>Every command and lifecycle rule →</span></a>
+            <a href="https://github.com/spawnr-dev/spawnr/blob/master/docs/architecture.md"><strong>Architecture</strong><span>Disks, VMM, networking, and vsock →</span></a>
+            <a href="https://github.com/spawnr-dev/spawnr/blob/master/docs/security.md"><strong>Security model</strong><span>Trust boundaries and credentials →</span></a>
+            <a href="https://github.com/spawnr-dev/spawnr/blob/master/docs/releases.md"><strong>Release contract</strong><span>Runtime locks and provenance →</span></a>
+          </div>
+        </section>
+      </article>
+    </main>
+
+    <footer class="site-footer docs-footer">
+      <div class="section-shell footer-grid">
+        <a class="brand" href="../"><img src="../assets/spawnr-logo.png" width="42" height="42" alt=""><span>spawnr</span></a>
+        <p>Documentation for the Spawnr early preview.</p>
+        <div class="footer-links"><a href="../">Overview</a><a href="https://github.com/spawnr-dev/spawnr">GitHub</a></div>
+      </div>
+    </footer>
+
+    <div class="copy-status" role="status" aria-live="polite"></div>
+  </body>
+</html>

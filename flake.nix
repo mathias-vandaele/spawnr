@@ -923,7 +923,9 @@
               scripts/smoke-public-install.sh \
               scripts/test-installer.sh
             python -m py_compile scripts/release-preflight.py
+            python -m py_compile scripts/check-site.py
             python scripts/test-release-preflight.py
+            python scripts/check-site.py
             cargo fmt --all -- --check
             ${pkgs.check-jsonschema}/bin/check-jsonschema \
               --schemafile release/runtime-lock.schema.json \

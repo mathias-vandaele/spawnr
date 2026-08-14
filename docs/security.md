@@ -74,7 +74,7 @@ configuration directories:
 |---|---|---|---|
 | Git name/email | selected global Git keys | generated Git config | session tmpfs |
 | SSH signing key identifier | selected global Git keys | generated Git config | session tmpfs |
-| GitHub token | `GH_TOKEN` or `GITHUB_TOKEN` | private file and process environment | session tmpfs |
+| GitHub token | `GH_TOKEN`, `GITHUB_TOKEN`, or active host `gh auth` session | private file and process environment | session tmpfs |
 | SSH host keys | system/user known-host files | bounded public record file | session tmpfs |
 | SSH signing/authentication | host `SSH_AUTH_SOCK` | Unix socket proxy over vsock | capability while VM runs |
 
@@ -90,7 +90,11 @@ short-lived agent keys for hostile workloads. Stop the machine to revoke the
 forwarded connection.
 
 Likewise, a supplied GitHub token grants its configured scope to guest
-processes during that session. Use a narrowly scoped, short-lived token.
+processes during that session. Environment variables take precedence. When
+they are absent and GitHub CLI is available, Spawnr makes a bounded,
+non-interactive `gh auth token --hostname github.com` lookup on the host. It
+does not copy GitHub CLI configuration into the guest. Use a narrowly scoped,
+short-lived token.
 `spawnr open` sets `HISTFILE=/run/spawnr/bash-history`, so ordinary Bash
 history expires with the session instead of entering a published environment.
 An image-controlled login profile can override this value. A process can also

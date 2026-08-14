@@ -258,7 +258,7 @@ The release workflow is deliberately split across security boundaries:
    channel, uploads them to a draft release, and publishes the draft only
    after every upload succeeds.
 6. A successful CLI release deploys its checksum-pinned `install.sh` to
-   GitHub Pages at `spawnr.dev`; runtime-only releases never alter the public
+   GitHub Pages at `spawnr-cli.dev`; runtime-only releases never alter the public
    installer channel.
 7. The final job downloads that public URL, requires it to be byte-identical
    to the verified candidate, runs the same installer a user receives, checks
@@ -284,7 +284,7 @@ expressed fully in source:
   publish from a personal fork or differently named repository;
 - enable GitHub immutable releases before the first public release;
 - configure GitHub Pages to deploy through Actions and verify the
-  `spawnr.dev` custom domain in repository settings;
+  `spawnr-cli.dev` custom domain in repository settings;
 - protect `v*` and `runtime-v*` tag creation;
 - configure `kvm-release` and `release` environments with required reviewers
   and restrict them to protected release tags (the first protects access to
@@ -300,6 +300,31 @@ For an Actions-based Pages deployment, the custom domain is configured in
 GitHub repository settings and DNS, not through a generated `CNAME` file. DNS
 and certificate provisioning must be complete before the first CLI tag, or
 the post-release public installer smoke will fail visibly.
+
+### One-time GitHub Pages and DNS setup
+
+Perform these steps in order after the canonical repository exists at
+`spawnr-dev/spawnr`:
+
+1. In the `spawnr-dev` organization settings, open **Pages**, add
+   `spawnr-cli.dev` as a verified domain, and publish the TXT challenge that
+   GitHub provides. Keep that TXT record after verification; it protects the
+   domain from being claimed by another GitHub account.
+2. In the repository's **Settings → Pages**, select **GitHub Actions** as the
+   source, enter `spawnr-cli.dev` as the custom domain, and save it before
+   changing the traffic records at the registrar.
+3. At the DNS provider, point the apex to GitHub Pages with these four `A`
+   records: `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, and
+   `185.199.111.153`. The equivalent GitHub `AAAA` records may be added for
+   IPv6. Optionally point `www` by `CNAME` to `spawnr-dev.github.io`.
+4. Do not create wildcard records such as `*.spawnr-cli.dev`. Wait for GitHub's
+   DNS check and certificate issuance, then enable **Enforce HTTPS**.
+
+The release workflow deploys the complete static site, its public schemas, and
+the checksum-pinned installer as one Pages artifact. A runtime-only tag does
+not modify the site. The first site deployment therefore happens with the
+first successful CLI release; until then the domain can be configured without
+serving an unverified installer.
 
 ## First public release preflight
 
@@ -325,7 +350,7 @@ are true:
 
 - the canonical repository is `spawnr-dev/spawnr` and local `origin` points
   to it;
-- Actions Pages serves `https://spawnr.dev` with HTTPS enforced;
+- Actions Pages serves `https://spawnr-cli.dev` with HTTPS enforced;
 - immutable releases and protected `v*`/`runtime-v*` tags are enabled;
 - `kvm-release` and `release` environments require approval;
 - the isolated `spawnr-kvm` runner is online and has no unrelated secrets;
@@ -373,7 +398,7 @@ $ spawnr setup
 $ spawnr doctor
 ```
 
-Updating `https://spawnr.dev/install.sh` therefore requires a fully gated CLI
+Updating `https://spawnr-cli.dev/install.sh` therefore requires a fully gated CLI
 release. The generic URL never resolves GitHub's mutable `latest` alias.
 
 ## Upgrade, rollback, and removal
@@ -381,7 +406,7 @@ release. The generic URL never resolves GitHub's mutable `latest` alias.
 Upgrade uses the same public entry point as first installation:
 
 ```console
-$ curl -fsSL https://spawnr.dev/install.sh | sh
+$ curl -fsSL https://spawnr-cli.dev/install.sh | sh
 $ spawnr setup
 $ spawnr doctor
 ```

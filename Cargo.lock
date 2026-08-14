@@ -592,6 +592,7 @@ dependencies = [
  "sha2",
  "spawnr-protocol",
  "tar",
+ "tempfile",
  "thiserror",
  "time",
  "uuid",

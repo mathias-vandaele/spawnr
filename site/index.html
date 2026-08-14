@@ -3,18 +3,220 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Spawnr</title>
-    <meta name="description" content="Isolated, reproducible Linux development computers.">
+    <meta name="theme-color" content="#0a0d12">
+    <meta name="color-scheme" content="dark">
+    <title>Spawnr — Reproducible development computers</title>
+    <meta
+      name="description"
+      content="Spawn isolated, reproducible KVM development computers from OCI environments. Keep the machine, workspace, and session in the right place."
+    >
+    <link rel="canonical" href="https://spawnr-cli.dev/">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Spawnr — Disposable computers. Persistent work.">
+    <meta
+      property="og:description"
+      content="Linux-first development computers powered by KVM, OCI environments, and a private vsock control plane."
+    >
+    <meta property="og:url" content="https://spawnr-cli.dev/">
+    <meta property="og:image" content="https://spawnr-cli.dev/assets/spawnr-logo.png">
+    <meta property="og:image:alt" content="Spawnr — isolated, reproducible development computers">
+    <meta property="og:image:width" content="1254">
+    <meta property="og:image:height" content="1254">
+    <meta name="twitter:card" content="summary">
+    <link rel="icon" type="image/png" href="assets/spawnr-logo.png">
+    <link rel="stylesheet" href="styles.css">
+    <script src="app.js" defer></script>
   </head>
   <body>
-    <main>
-      <h1>Spawnr</h1>
-      <p>Install the portable Linux x86_64 CLI:</p>
-      <pre><code>curl -fsSL https://spawnr.dev/install.sh | sh</code></pre>
-      <p>Then install its pinned runtime and verify the host:</p>
-      <pre><code>spawnr setup
-spawnr doctor</code></pre>
-      <p><a href="https://github.com/spawnr-dev/spawnr">Source and documentation</a></p>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="nav-shell">
+        <a class="brand" href="./" aria-label="Spawnr home">
+          <img src="assets/spawnr-logo.png" width="42" height="42" alt="">
+          <span>spawnr</span>
+        </a>
+        <nav class="primary-nav" aria-label="Primary navigation">
+          <a href="./" aria-current="page">Overview</a>
+          <a href="docs/">Docs</a>
+          <a href="https://github.com/spawnr-dev/spawnr">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero section-shell">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="status-dot"></span> Early preview · Linux x86_64</p>
+          <h1>Disposable computers.<br><span>Persistent work.</span></h1>
+          <p class="hero-lede">
+            Spawn isolated KVM development computers from OCI environments.
+            Your tools live in the machine, your source stays on its own disk,
+            and session credentials disappear when the machine stops.
+          </p>
+
+          <div class="install-block" aria-label="Installation command">
+            <code id="install-command">curl -fsSL https://spawnr-cli.dev/install.sh | sh</code>
+            <button class="copy-button" type="button" data-copy="install-command">
+              <span class="copy-label">Copy</span>
+            </button>
+          </div>
+          <p class="install-next"><code>spawnr setup</code><span>then</span><code>spawnr doctor</code></p>
+
+          <div class="hero-actions">
+            <a class="button button-primary" href="docs/">Get started <span aria-hidden="true">→</span></a>
+            <a class="button button-secondary" href="https://github.com/spawnr-dev/spawnr">View source</a>
+          </div>
+        </div>
+
+        <div class="hero-console" aria-label="Example Spawnr session">
+          <div class="console-chrome">
+            <div class="console-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+            <span>host — spawnr</span>
+          </div>
+          <div class="console-body">
+            <p><span class="prompt">$</span> spawnr clone \
+              <span class="argument">ghcr.io/acme/rust-dev:v1</span> \
+              <span class="argument">git@github.com:acme/project.git</span></p>
+            <p class="console-muted">pulling environment · creating disks · booting KVM</p>
+            <p><span class="success">✓</span> project-1 is ready</p>
+            <p class="console-gap"><span class="prompt">$</span> spawnr open project-1</p>
+            <p class="console-banner">SPAWNR MACHINE / project-1</p>
+            <p><span class="guest-prompt">dev@project-1</span> <span class="path">~/workspace/project</span> $ <span class="cursor" aria-hidden="true"></span></p>
+          </div>
+          <div class="console-meta">
+            <span><i class="meta-dot meta-green"></i>KVM</span>
+            <span><i class="meta-dot meta-cyan"></i>vsock</span>
+            <span><i class="meta-dot meta-violet"></i>OCI</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="proof-strip" aria-label="Spawnr properties">
+        <div class="section-shell proof-grid">
+          <div><strong>Hardware-backed</strong><span>Cloud Hypervisor + KVM</span></div>
+          <div><strong>Daemonless OCI</strong><span>No Docker socket required</span></div>
+          <div><strong>Host-owned identity</strong><span>Private keys stay on the host</span></div>
+          <div><strong>Reproducible runtime</strong><span>Versioned and digest-pinned</span></div>
+        </div>
+      </section>
+
+      <section class="section-shell section-block" id="model">
+        <div class="section-heading">
+          <p class="eyebrow">The storage model</p>
+          <h2>Three domains. One clean boundary.</h2>
+          <p>Environment, source, and credentials have different lifetimes. Spawnr keeps them physically separate.</p>
+        </div>
+
+        <div class="domain-grid">
+          <article class="domain-card domain-environment">
+            <div class="domain-index">01</div>
+            <p class="domain-label">Environment</p>
+            <h3>The development computer</h3>
+            <p>Packages, compilers, system configuration, and toolchains. Mutable while you work; publishable as an OCI image.</p>
+            <ul>
+              <li>Independent ext4 disk</li>
+              <li>OCI pull and publish</li>
+              <li>Reproducible base</li>
+            </ul>
+          </article>
+
+          <article class="domain-card domain-workspace">
+            <div class="domain-index">02</div>
+            <p class="domain-label">Workspace</p>
+            <h3>Your persistent source</h3>
+            <p>Repository checkout, build outputs, and project files live on a separate disk that is never part of a published environment.</p>
+            <ul>
+              <li>Independent per machine</li>
+              <li>Persistent across restarts</li>
+              <li>Excluded from publish</li>
+            </ul>
+          </article>
+
+          <article class="domain-card domain-session">
+            <div class="domain-index">03</div>
+            <p class="domain-label">Session</p>
+            <h3>Ephemeral host identity</h3>
+            <p>Sanitized Git identity, GitHub authentication, shell history, and SSH-agent access exist only in guest tmpfs.</p>
+            <ul>
+              <li>Memory-backed tmpfs</li>
+              <li>Revoked on stop</li>
+              <li>Structurally unpublishable</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="section-shell section-block workflow-section">
+        <div class="workflow-copy">
+          <p class="eyebrow">The workflow</p>
+          <h2>From registry to shell in one command.</h2>
+          <p>
+            Bring an existing development image or start from a standard OCI base.
+            Spawnr materializes it into a real Linux filesystem, boots it with KVM,
+            and connects your terminal over a private vsock transport.
+          </p>
+          <a class="text-link" href="docs/#commands">Explore the command reference <span aria-hidden="true">→</span></a>
+        </div>
+
+        <ol class="workflow-list">
+          <li>
+            <span>1</span>
+            <div><strong>Clone</strong><p>Pull an OCI environment and clone your repository inside an isolated machine.</p></div>
+            <code>spawnr clone</code>
+          </li>
+          <li>
+            <span>2</span>
+            <div><strong>Open</strong><p>Enter an interactive PTY as a normal development user with session capabilities.</p></div>
+            <code>spawnr open</code>
+          </li>
+          <li>
+            <span>3</span>
+            <div><strong>Publish</strong><p>Capture environment changes as OCI layers without source or session secrets.</p></div>
+            <code>spawnr publish</code>
+          </li>
+        </ol>
+      </section>
+
+      <section class="security-band">
+        <div class="section-shell security-grid">
+          <div class="security-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div>
+            <p class="eyebrow">Host identity, guest capability</p>
+            <h2>Your private keys stay home.</h2>
+            <p>
+              Spawnr forwards the ability to request SSH signatures over vsock;
+              it never copies key material. Only selected Git identity, public known-host records,
+              and session-scoped GitHub authentication cross the boundary.
+            </p>
+          </div>
+          <a class="button button-secondary" href="https://github.com/spawnr-dev/spawnr/blob/master/docs/security.md">Read the security model</a>
+        </div>
+      </section>
+
+      <section class="section-shell section-block final-cta">
+        <p class="eyebrow">Linux-first · open source</p>
+        <h2>Build the machine. Keep the work.</h2>
+        <p>Spawnr is an early project for developers who want stronger isolation without surrendering a familiar shell.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="docs/">Read the docs <span aria-hidden="true">→</span></a>
+          <a class="button button-secondary" href="https://github.com/spawnr-dev/spawnr">Follow on GitHub</a>
+        </div>
+      </section>
     </main>
+
+    <footer class="site-footer">
+      <div class="section-shell footer-grid">
+        <a class="brand" href="./"><img src="assets/spawnr-logo.png" width="42" height="42" alt=""><span>spawnr</span></a>
+        <p>Isolated, reproducible Linux development computers.</p>
+        <div class="footer-links">
+          <a href="docs/">Docs</a>
+          <a href="https://github.com/spawnr-dev/spawnr">GitHub</a>
+          <a href="https://github.com/spawnr-dev/spawnr/releases">Releases</a>
+        </div>
+      </div>
+    </footer>
+
+    <div class="copy-status" role="status" aria-live="polite"></div>
   </body>
 </html>
