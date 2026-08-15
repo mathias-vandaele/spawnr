@@ -20,7 +20,7 @@ The locked flake exposes these non-Nix release layers:
 $ nix build .#spawnr-static
 $ nix build .#runtime-tree
 $ nix build .#runtime-archive
-$ nix build .#runtime-lock-candidate
+$ nix build .#runtime-lock
 $ nix build .#installer
 $ nix build .#native-packages
 $ nix build .#release-artifacts
@@ -50,26 +50,20 @@ byte-identical, and likewise performs no setup automatically.
 
 ## Version axes
 
-Three versions change independently:
+One public SemVer version identifies the complete Spawnr release: CLI and
+managed runtime are published together under `v<VERSION>`. The runtime remains
+a separate downloadable artifact, and the guest agent retains its own package
+metadata, but users and maintainers perform one release transaction.
 
-- the CLI follows the workspace SemVer version;
-- the runtime follows its own SemVer version;
-- the guest control protocol is the integer `PROTOCOL_VERSION` shared by the
-  host and agent crates.
-
-The guest agent and protocol crates keep explicit package versions instead of
-inheriting the CLI workspace version. Therefore a CLI-only version bump does
-not rewrite runtime component metadata; an agent, boot, kernel, or bundled-tool
-change still requires a new runtime version and lock.
-
-A CLI patch may keep using an existing runtime. For example, CLI `0.1.1` may
-continue to use runtime `0.1.0`. A runtime declares a half-open supported CLI
-range: `minimum <= CLI < maximum_exclusive`. V1 requires an exact protocol
-version match and supports only `x86_64-linux`.
+The guest control protocol remains the integer `PROTOCOL_VERSION` shared by
+the host and agent crates. A runtime also declares a half-open supported CLI
+range (`minimum <= CLI < maximum_exclusive`) so compatibility is explicit and
+a future decoupling remains possible. V1 requires an exact protocol version
+match and supports only `x86_64-linux`.
 
 `release/config.toml` is the source of truth for the public GitHub repository,
-website, target, runtime version, and compatible CLI interval. `Cargo.toml`
-remains the source of truth for the CLI version. The flake reads both files;
+website, target, and compatible CLI interval. `Cargo.toml` is the source of
+truth for the unified Spawnr version. The flake reads both files;
 the release preflight rejects a disagreement instead of publishing internally
 consistent artifacts at the wrong repository or URL.
 
@@ -88,11 +82,10 @@ The Rust definitions and stricter semantic validation live in
 `crates/spawnr/src/runtime.rs`. The examples use `example.invalid` and dummy
 digests; no production build may embed or download them.
 
-The flake derives `runtime-lock-candidate` from the relocatable archive and
-embeds that exact JSON in the candidate static CLI, allowing the complete
-setup flow to be tested before publication. The release transaction promotes
-identical independently reproduced metadata to `release/runtime.lock.json`;
-the publication workflow must reject any difference.
+The flake derives `runtime-lock` from the relocatable archive, embeds that exact
+JSON in the static CLI, and publishes it beside the archive. This lets the
+complete setup flow be tested before publication without a generated lock in
+the source tree or a second promotion commit.
 
 Unknown JSON fields are rejected. A schema change that cannot be read safely
 by an existing CLI increments `schema_version`.
@@ -102,7 +95,7 @@ by an existing CLI increments `schema_version`.
 The external lock binds a CLI to one immutable runtime download:
 
 - runtime, target, protocol, and compatible CLI range;
-- independent GitHub tag `runtime-v<VERSION>`;
+- the unified GitHub tag `v<VERSION>`;
 - exact archive file name, HTTPS URL, format, and byte length;
 - SHA-256 of the complete archive;
 - SHA-256 of the archive's `manifest.json`.
@@ -200,34 +193,32 @@ versioned install.sh
   -> verifies every installed runtime file
 ```
 
-The runtime manifest intentionally does not contain a Git revision. Adding the
-new archive digest to `runtime.lock.json` creates a new commit; embedding that
-commit in the archive would make the archive digest circular and impossible to
-reproduce. Git commit, tag, build inputs, and source provenance are instead
-bound externally by the release SBOM and GitHub artifact attestation.
+The runtime manifest intentionally does not contain a Git revision. The lock is
+generated from the finished archive and embedded only in the CLI, avoiding a
+self-referential archive digest. Git commit, unified tag, build inputs, and
+source provenance are bound externally by the release SBOM and GitHub artifact
+attestation.
 
 ## Release preparation transaction
 
-A runtime-changing release is prepared as a two-commit transaction:
+Every public version is prepared as one transaction:
 
-1. Land all code, component, version, and flake changes for the runtime
-   candidate.
-2. Build the candidate twice from clean Nix builders and require identical
-   archive and manifest digests.
-3. Commit only the resulting metadata as `release/runtime.lock.json`.
-4. Rebuild from that commit and require the same digests.
-5. Build the CLI using the committed lock and execute the complete KVM tests
-   against those exact artifacts.
-6. Tag only the verified commit.
+1. Land all CLI, agent, runtime component, version, and flake changes.
+2. Two clean Nix builders independently produce the complete candidate.
+3. Each build creates the normalized runtime archive, derives its lock, embeds
+   that lock in the static CLI, and assembles all release assets.
+4. Require recursive byte equality between both complete candidates.
+5. Execute the complete KVM scenario against those exact artifacts.
+6. Tag the verified commit once as `v<VERSION>` and publish all assets together.
 
-Changing `runtime.lock.json` must not be an input to the runtime archive. A
-CLI-only release reuses the existing lock and skips runtime publication.
+`runtime.lock.json` remains outside the runtime archive and is never committed;
+it is a deterministic output of the release build.
 
 The release workflow must refuse:
 
 - a tag/version mismatch;
-- a missing or modified runtime lock;
-- a rebuilt digest different from the committed lock;
+- a runtime version different from the unified Spawnr version;
+- a runtime archive different from its generated lock;
 - an incompatible CLI or protocol version;
 - a manifest containing missing, duplicate, unsorted, unknown, or unsafe
   entries.
@@ -237,8 +228,7 @@ The release workflow must refuse:
 `.github/workflows/ci.yml` runs the complete flake check for every branch and
 pull request with read-only repository access. `.github/workflows/release.yml`
 can be exercised without publication through `workflow_dispatch`; pushing a
-`runtime-v*` or `v*` tag uses the same gates and enables the final publication
-job.
+`v*` tag uses the same gates and enables the final publication job.
 
 The release workflow is deliberately split across security boundaries:
 
@@ -247,20 +237,18 @@ The release workflow is deliberately split across security boundaries:
    namespaces on a fresh GitHub-hosted runner before any expensive build.
 2. Two fresh `ubuntu-24.04` jobs independently build `release-artifacts`.
 3. A third job verifies both checksum sets and requires recursive byte
-   equality. For a tag, it also binds runtime tags to the generated lock and
-   CLI tags to the Cargo version plus committed runtime lock.
+   equality. For a tag, it binds the unified tag to the Cargo version, runtime
+   version, generated lock, and release URLs.
 4. Another fresh GitHub-hosted `ubuntu-24.04` runner prepares ephemeral device
    permissions and subordinate IDs, installs the exact verified archive with
    the exact static CLI, runs `doctor`, then executes the critical
    clone/open/crash/restart/publish/reimport/rollback KVM scenario.
 5. Only the final `release` environment job receives `contents: write`, OIDC,
    and attestation permissions. It reverifies checksums, creates provenance
-   attestations, selects only the assets belonging to that runtime or CLI
-   channel, uploads them to a draft release, and publishes the draft only
-   after every upload succeeds.
-6. A successful CLI release deploys its checksum-pinned `install.sh` to
-   GitHub Pages at `spawnr-cli.dev`; runtime-only releases never alter the public
-   installer channel.
+   attestations, uploads the CLI, runtime, packages, metadata, and licences to
+   one draft release, and publishes it only after every upload succeeds.
+6. A successful release deploys its checksum-pinned `install.sh` to GitHub
+   Pages at `spawnr-cli.dev`.
 7. The final job downloads that public URL, requires it to be byte-identical
    to the verified candidate, runs the same installer a user receives, checks
    the installed version, executes `spawnr setup` twice, and requires
@@ -268,7 +256,7 @@ The release workflow is deliberately split across security boundaries:
    Host KVM may be unavailable on this smoke runner; the protected KVM job is
    authoritative for virtualization.
 
-The CLI release also publishes the independently reproduced `.deb`, `.rpm`,
+The release also publishes the independently reproduced `.deb`, `.rpm`,
 `PKGBUILD`, and `.SRCINFO` from the same candidate. Publishing the AUR metadata
 to the separate AUR Git repository remains an explicit maintainer operation;
 the GitHub workflow does not hold an AUR SSH key.
@@ -286,7 +274,7 @@ expressed fully in source:
 - enable GitHub immutable releases before the first public release;
 - configure GitHub Pages to deploy through Actions and verify the
   `spawnr-cli.dev` custom domain in repository settings;
-- protect `v*` and `runtime-v*` tag creation;
+- protect `v*` tag creation;
 - configure `kvm-release` and `release` environments with required reviewers
   and restrict them to protected release tags (the first protects the
   expensive exact-artifact gate; the second protects publication);
@@ -298,8 +286,8 @@ the gate does not depend on mutable OCI tags.
 
 For an Actions-based Pages deployment, the custom domain is configured in
 GitHub repository settings and DNS, not through a generated `CNAME` file. DNS
-and certificate provisioning must be complete before the first CLI tag, or
-the post-release public installer smoke will fail visibly.
+and certificate provisioning must be complete before the first release tag,
+or the post-release public installer smoke will fail visibly.
 
 ### One-time GitHub Pages and DNS setup
 
@@ -321,10 +309,9 @@ Perform these steps in order after the canonical repository exists at
    DNS check and certificate issuance, then enable **Enforce HTTPS**.
 
 The release workflow deploys the complete static site, its public schemas, and
-the checksum-pinned installer as one Pages artifact. A runtime-only tag does
-not modify the site. The first site deployment therefore happens with the
-first successful CLI release; until then the domain can be configured without
-serving an unverified installer.
+the checksum-pinned installer as one Pages artifact. The first deployment
+happens after the first successful unified release; until then the domain can
+be configured without serving an unverified installer.
 
 ## First public release preflight
 
@@ -334,47 +321,39 @@ run the same binding check used by GitHub Actions:
 ```console
 $ nix flake check
 $ nix build .#release-artifacts
-$ scripts/release-preflight.py candidate runtime-v0.1.0 result \
+$ scripts/release-preflight.py candidate v0.1.0 result \
     --check-remote --require-clean
 ```
 
 The preflight verifies the configured public identity, local `origin`, clean
-worktree, complete SHA-256 set, runtime archive against its lock, release URL,
-and tag/version binding. For a CLI tag, use `v<CLI_VERSION>`; it additionally
-requires the exact independently published lock at
-`release/runtime.lock.json`, and verifies the CLI, installer, Debian, RPM, and
-AUR versions and digests.
+worktree, complete SHA-256 set, runtime archive against its generated lock,
+unified release URL and tag/version binding, plus the CLI, installer, Debian,
+RPM, and AUR versions and digests.
 
 The first release is intentionally blocked until all of these external items
 are true:
 
 - the canonical repository is `mathias-vandaele/spawnr` and local `origin` points
   to it;
-- Actions Pages serves `https://spawnr-cli.dev` with HTTPS enforced;
-- immutable releases and protected `v*`/`runtime-v*` tags are enabled;
+- GitHub Pages is configured for Actions with the verified
+  `spawnr-cli.dev` domain, valid DNS, and HTTPS available;
+- immutable releases and protected `v*` tags are enabled;
 - `kvm-release` and `release` environments require approval;
 - the hosted KVM capability preflight succeeds on `ubuntu-24.04`;
-- `release/runtime.lock.json` is absent for the first runtime tag, then added
-  only from the independently reproduced immutable runtime release before the
-  CLI tag.
+- the generated candidate contains one CLI and one runtime with the same
+  Spawnr version and a lock pointing to the future `v<VERSION>` release.
 
 ## Public release sequence
 
-For a runtime-changing release:
+For every Spawnr release:
 
 1. Run the Release workflow manually on the intended commit. This performs
    both independent builds and the exact-artifact KVM gate without publishing.
-2. Create and push `runtime-v<RUNTIME_VERSION>`. After approval, the workflow
-   publishes the canonical runtime archive and its candidate lock.
-3. Download `runtime.lock.json` from that immutable runtime release, verify it
-   equals `nix build .#runtime-lock-candidate`, and commit it as
-   `release/runtime.lock.json` without changing runtime inputs.
-4. Re-run all checks, create `v<CLI_VERSION>` on that commit, and approve the
-   user-facing release. The release preflight refuses publication unless the
-   committed lock exactly equals the independently reproduced candidate.
-
-For a CLI-only patch, keep `release/runtime.lock.json` unchanged and create the
-new CLI tag after the normal candidate and KVM gates.
+2. Create and push `v<VERSION>` on that same commit.
+3. Approve the protected KVM and publication environments. The workflow
+   rebuilds and compares the complete candidate, runs the KVM gate, publishes
+   one GitHub Release containing both CLI and runtime, deploys the installer,
+   and verifies the public installation path.
 
 Tags are never reused. If a public smoke or user-visible behavior fails after
 publication, fix the channel or code and publish a new patch version; do not
@@ -398,8 +377,8 @@ $ spawnr setup
 $ spawnr doctor
 ```
 
-Updating `https://spawnr-cli.dev/install.sh` therefore requires a fully gated CLI
-release. The generic URL never resolves GitHub's mutable `latest` alias.
+Updating `https://spawnr-cli.dev/install.sh` therefore requires a fully gated
+Spawnr release. The generic URL never resolves GitHub's mutable `latest` alias.
 
 ## Upgrade, rollback, and removal
 

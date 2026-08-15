@@ -136,8 +136,8 @@ impl RuntimeLock {
         validate_target_protocol(&self.target, self.protocol_version)?;
         self.cli_compatibility.validate()?;
         ensure!(
-            self.release_tag == format!("runtime-v{runtime_version}"),
-            "runtime release tag must be runtime-v{runtime_version}"
+            self.release_tag == format!("v{runtime_version}"),
+            "runtime release tag must be v{runtime_version}"
         );
 
         let expected_file = format!("spawnr-runtime-{runtime_version}-{}.tar.zst", self.target);

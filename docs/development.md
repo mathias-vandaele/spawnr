@@ -100,7 +100,7 @@ $ nix build .#spawnr-agent
 $ nix build .#guest-assets
 $ nix build .#runtime-tree
 $ nix build .#runtime-archive
-$ nix build .#runtime-lock-candidate
+$ nix build .#runtime-lock
 $ nix build .#release-artifacts
 ```
 
@@ -123,7 +123,7 @@ Exercise the exact offline setup path used by release validation with:
 ```console
 $ nix build .#spawnr-static -o result-cli
 $ nix build .#runtime-archive -o result-runtime
-$ nix build .#runtime-lock-candidate -o result-lock
+$ nix build .#runtime-lock -o result-lock
 $ export SPAWNR_HOME=/tmp/spawnr-setup-test
 $ result-cli/bin/spawnr setup \
     --runtime-lock result-lock/runtime.lock.json \
@@ -147,7 +147,7 @@ Spawnr's existing `SPAWNR_*` tool/asset overrides. Mutable machine state still
 goes to `SPAWNR_HOME` (or the normal XDG data directory); no Nix store path is
 hard-coded into the Rust source.
 
-The public CLI/runtime versioning, manifest, digest chain, and release
+The unified public versioning, runtime manifest, digest chain, and release
 preparation transaction are specified in [Release and runtime
 contract](releases.md).
 

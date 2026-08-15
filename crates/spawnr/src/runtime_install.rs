@@ -822,7 +822,7 @@ mod tests {
                 target: RUNTIME_TARGET.into(),
                 protocol_version: spawnr_protocol::PROTOCOL_VERSION,
                 cli_compatibility: test_compatibility(),
-                release_tag: "runtime-v0.1.0".into(),
+                release_tag: "v0.1.0".into(),
                 archive: RuntimeArchive {
                     file_name: archive_name.into(),
                     format: ArchiveFormat::TarZstd,

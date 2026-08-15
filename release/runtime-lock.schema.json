@@ -21,7 +21,7 @@
     "cli_compatibility": { "$ref": "#/$defs/cliCompatibility" },
     "release_tag": {
       "type": "string",
-      "pattern": "^runtime-v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
     },
     "archive": {
       "type": "object",
