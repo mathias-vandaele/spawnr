@@ -913,11 +913,10 @@
           ];
           buildPhase = ''
             runHook preBuild
-            actionlint \
-              -config-file .github/actionlint.yaml \
-              .github/workflows/*.yml
+            actionlint .github/workflows/*.yml
             shellcheck \
               scripts/ci-kvm-release.sh \
+              scripts/prepare-github-hosted-kvm.sh \
               scripts/check-native-packages.sh \
               scripts/installer-fake-curl.sh \
               scripts/smoke-public-install.sh \
