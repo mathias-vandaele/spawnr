@@ -1,6 +1,6 @@
 [Unit]
 Description=Spawnr guest control plane
-Documentation=https://github.com/spawnr-dev/spawnr
+Documentation=https://github.com/mathias-vandaele/spawnr
 After=systemd-udev-settle.service
 Wants=systemd-udev-settle.service
 

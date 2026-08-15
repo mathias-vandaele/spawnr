@@ -280,7 +280,7 @@ Repository configuration is part of the release boundary and cannot be
 expressed fully in source:
 
 - host or transfer the project at the exact repository named by
-  `release/config.toml` (`spawnr-dev/spawnr` for V1); the workflow refuses to
+  `release/config.toml` (`mathias-vandaele/spawnr` for V1); the workflow refuses to
   publish from a personal fork or differently named repository;
 - enable GitHub immutable releases before the first public release;
 - configure GitHub Pages to deploy through Actions and verify the
@@ -304,9 +304,9 @@ the post-release public installer smoke will fail visibly.
 ### One-time GitHub Pages and DNS setup
 
 Perform these steps in order after the canonical repository exists at
-`spawnr-dev/spawnr`:
+`mathias-vandaele/spawnr`:
 
-1. In the `spawnr-dev` organization settings, open **Pages**, add
+1. In the `mathias-vandaele` account settings, open **Pages**, add
    `spawnr-cli.dev` as a verified domain, and publish the TXT challenge that
    GitHub provides. Keep that TXT record after verification; it protects the
    domain from being claimed by another GitHub account.
@@ -316,7 +316,7 @@ Perform these steps in order after the canonical repository exists at
 3. At the DNS provider, point the apex to GitHub Pages with these four `A`
    records: `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, and
    `185.199.111.153`. The equivalent GitHub `AAAA` records may be added for
-   IPv6. Optionally point `www` by `CNAME` to `spawnr-dev.github.io`.
+   IPv6. Optionally point `www` by `CNAME` to `mathias-vandaele.github.io`.
 4. Do not create wildcard records such as `*.spawnr-cli.dev`. Wait for GitHub's
    DNS check and certificate issuance, then enable **Enforce HTTPS**.
 
@@ -348,7 +348,7 @@ AUR versions and digests.
 The first release is intentionally blocked until all of these external items
 are true:
 
-- the canonical repository is `spawnr-dev/spawnr` and local `origin` points
+- the canonical repository is `mathias-vandaele/spawnr` and local `origin` points
   to it;
 - Actions Pages serves `https://spawnr-cli.dev` with HTTPS enforced;
 - immutable releases and protected `v*`/`runtime-v*` tags are enabled;

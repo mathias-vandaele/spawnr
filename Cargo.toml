@@ -11,7 +11,7 @@ version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
 rust-version = "1.88"
-repository = "https://github.com/spawnr-dev/spawnr"
+repository = "https://github.com/mathias-vandaele/spawnr"
 
 [workspace.dependencies]
 anyhow = "1.0.98"

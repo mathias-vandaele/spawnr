@@ -1,4 +1,4 @@
-repository = "spawnr-dev/spawnr"
+repository = "mathias-vandaele/spawnr"
 website = "https://spawnr-cli.dev"
 target = "x86_64-linux"
 runtime_version = "0.1.0"

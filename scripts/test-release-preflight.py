@@ -45,7 +45,7 @@ def write_runtime_candidate(directory: pathlib.Path) -> None:
         "archive": {
             "file_name": archive.name,
             "url": (
-                "https://github.com/spawnr-dev/spawnr/releases/download/"
+                "https://github.com/mathias-vandaele/spawnr/releases/download/"
                 f"runtime-v0.1.0/{archive.name}"
             ),
             "size_bytes": archive.stat().st_size,
@@ -61,9 +61,9 @@ def write_runtime_candidate(directory: pathlib.Path) -> None:
 
 
 def main() -> None:
-    run("repository", "spawnr-dev/spawnr", success=True)
+    run("repository", "mathias-vandaele/spawnr", success=True)
     failure = run("repository", "someone/fork", success=False)
-    if "expected 'spawnr-dev/spawnr'" not in failure.stderr:
+    if "expected 'mathias-vandaele/spawnr'" not in failure.stderr:
         raise AssertionError("repository mismatch did not identify the expected repository")
     with tempfile.TemporaryDirectory(prefix="spawnr-preflight-test-") as temporary:
         candidate = pathlib.Path(temporary)
