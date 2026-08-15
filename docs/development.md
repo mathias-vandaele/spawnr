@@ -154,8 +154,9 @@ contract](releases.md).
 GitHub workflow changes are checked by `actionlint`; release shell helpers are
 checked by ShellCheck and the public release preflight has behavioral Python
 tests as part of `nix flake check`. Release workflow manual runs require a
-self-hosted runner with the `spawnr-kvm` label; normal pull-request CI does
-not.
+GitHub-hosted `ubuntu-24.04` runner that exposes KVM. The release preflight
+proves KVM, FUSE, and subordinate user namespaces before expensive builds;
+normal pull-request CI does not boot a VM.
 
 ## Build the Rust workspace
 

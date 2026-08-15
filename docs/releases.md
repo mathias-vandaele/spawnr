@@ -243,15 +243,16 @@ job.
 The release workflow is deliberately split across security boundaries:
 
 1. A cheap preflight requires `GITHUB_REPOSITORY` to equal the public identity
-   in `release/config.toml` before any expensive build starts.
+   in `release/config.toml`, then proves KVM, FUSE, and subordinate user
+   namespaces on a fresh GitHub-hosted runner before any expensive build.
 2. Two fresh `ubuntu-24.04` jobs independently build `release-artifacts`.
 3. A third job verifies both checksum sets and requires recursive byte
    equality. For a tag, it also binds runtime tags to the generated lock and
    CLI tags to the Cargo version plus committed runtime lock.
-4. A self-hosted runner carrying the labels `linux`, `x64`, and `spawnr-kvm`
-   installs the exact verified archive with the exact static CLI, runs
-   `doctor`, then executes the critical clone/open/crash/restart/publish/
-   reimport/rollback KVM scenario.
+4. Another fresh GitHub-hosted `ubuntu-24.04` runner prepares ephemeral device
+   permissions and subordinate IDs, installs the exact verified archive with
+   the exact static CLI, runs `doctor`, then executes the critical
+   clone/open/crash/restart/publish/reimport/rollback KVM scenario.
 5. Only the final `release` environment job receives `contents: write`, OIDC,
    and attestation permissions. It reverifies checksums, creates provenance
    attestations, selects only the assets belonging to that runtime or CLI
@@ -287,11 +288,10 @@ expressed fully in source:
   `spawnr-cli.dev` custom domain in repository settings;
 - protect `v*` and `runtime-v*` tag creation;
 - configure `kvm-release` and `release` environments with required reviewers
-  and restrict them to protected release tags (the first protects access to
-  the isolated virtualization runner; the second protects publication);
-- attach an ephemeral or tightly isolated x86_64 Linux runner with KVM, FUSE,
-  user namespaces, subordinate UID/GID mappings, and the `spawnr-kvm` label;
-- do not expose unrelated repository or organization secrets to that runner.
+  and restrict them to protected release tags (the first protects the
+  expensive exact-artifact gate; the second protects publication);
+- do not expose repository or account secrets to the KVM job. It needs only
+  read access to the verified workflow artifact.
 
 The KVM fixture is a public, digest-pinned `linux/amd64` development image, so
 the gate does not depend on mutable OCI tags.
@@ -353,7 +353,7 @@ are true:
 - Actions Pages serves `https://spawnr-cli.dev` with HTTPS enforced;
 - immutable releases and protected `v*`/`runtime-v*` tags are enabled;
 - `kvm-release` and `release` environments require approval;
-- the isolated `spawnr-kvm` runner is online and has no unrelated secrets;
+- the hosted KVM capability preflight succeeds on `ubuntu-24.04`;
 - `release/runtime.lock.json` is absent for the first runtime tag, then added
   only from the independently reproduced immutable runtime release before the
   CLI tag.

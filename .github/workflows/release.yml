@@ -17,9 +17,9 @@ concurrency:
 
 jobs:
   preflight:
-    name: Public release identity
+    name: Public identity and hosted KVM capabilities
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Check out the release source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -28,6 +28,9 @@ jobs:
 
       - name: Require the configured public repository
         run: scripts/release-preflight.py repository "$GITHUB_REPOSITORY"
+
+      - name: Prove hosted KVM, FUSE, and user namespaces
+        run: scripts/prepare-github-hosted-kvm.sh
 
   build:
     name: Independent build ${{ matrix.builder }}
@@ -117,11 +120,7 @@ jobs:
   kvm:
     name: Exact-artifact KVM gate
     needs: reproduce
-    runs-on:
-      - self-hosted
-      - linux
-      - x64
-      - spawnr-kvm
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     environment: kvm-release
     steps:
@@ -129,6 +128,9 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+
+      - name: Prepare ephemeral host capabilities
+        run: scripts/prepare-github-hosted-kvm.sh
 
       - name: Download verified candidate
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
