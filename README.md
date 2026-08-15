@@ -151,16 +151,16 @@ After the separate AUR repository is published, Arch users install
 Release maintainers can build the portable musl CLI and complete candidate
 artifact directory with `nix build .#spawnr-static` and
 `nix build .#release-artifacts`. The latter includes the native packages,
-deterministic runtime archive and candidate lock embedded in the static CLI,
+deterministic runtime archive and generated lock embedded in the static CLI,
 checksums, notices, source inventory, and SPDX SBOM.
 
 The release workflow rebuilds those artifacts on two independent GitHub
 runners, requires byte equality, exercises the exact files on a protected KVM
-runner, and only then permits an attested immutable GitHub Release. A CLI
-release finishes by installing again from the live `spawnr-cli.dev` URL and
-fetching its pinned runtime. See the
+runner, and only then permits one attested immutable GitHub Release containing
+both CLI and runtime. It finishes by installing again from the live
+`spawnr-cli.dev` URL and fetching its pinned runtime. See the
 [release contract](docs/releases.md#github-actions-release-gates) for the
-repository settings and two-tag publication sequence.
+repository settings and single-tag publication sequence.
 
 ## Basic use
 

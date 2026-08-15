@@ -70,7 +70,6 @@ def release_identity() -> tuple[dict, str]:
     repository = config.get("repository")
     website = config.get("website")
     target = config.get("target")
-    runtime_version = config.get("runtime_version")
     minimum = config.get("cli_minimum")
     maximum = config.get("cli_maximum_exclusive")
 
@@ -95,7 +94,6 @@ def release_identity() -> tuple[dict, str]:
         ("CLI", cli_version),
         ("agent", agent_version),
         ("protocol crate", protocol_version),
-        ("runtime", runtime_version),
         ("minimum CLI", minimum),
         ("maximum CLI", maximum),
     ):
@@ -186,7 +184,7 @@ def check_runtime_candidate(artifacts: pathlib.Path, candidate_lock: dict) -> No
 
 
 def check_cli_candidate(
-    artifacts: pathlib.Path, candidate_lock: dict, cli_version: str, repository: str
+    artifacts: pathlib.Path, cli_version: str, repository: str
 ) -> None:
     cli = require_file(artifacts / f"spawnr-{cli_version}-x86_64-linux")
     require_file(artifacts / f"spawnr_{cli_version}-1_amd64.deb")
@@ -218,15 +216,6 @@ def check_cli_candidate(
         if declaration not in installer:
             fail(f"installer does not pin {declaration}")
 
-    committed_lock_path = ROOT / "release/runtime.lock.json"
-    if not committed_lock_path.is_file():
-        fail(
-            "CLI releases require release/runtime.lock.json; promote the independently "
-            "reproduced runtime lock first"
-        )
-    if load_json(committed_lock_path) != candidate_lock:
-        fail("committed runtime lock differs from the reproduced candidate lock")
-
 
 def check_candidate(tag: str, artifacts: pathlib.Path, config: dict, cli_version: str) -> None:
     if not artifacts.is_dir():
@@ -235,8 +224,8 @@ def check_candidate(tag: str, artifacts: pathlib.Path, config: dict, cli_version
     candidate_lock = load_json(require_file(artifacts / "runtime.lock.json"))
     runtime_version = candidate_lock.get("runtime_version")
     release_tag = candidate_lock.get("release_tag")
-    if runtime_version != config["runtime_version"]:
-        fail("candidate runtime version differs from release/config.toml")
+    if runtime_version != cli_version:
+        fail("candidate runtime version differs from the Spawnr release version")
     if candidate_lock.get("target") != config["target"]:
         fail("candidate target differs from release/config.toml")
     expected_compatibility = {
@@ -245,8 +234,11 @@ def check_candidate(tag: str, artifacts: pathlib.Path, config: dict, cli_version
     }
     if candidate_lock.get("cli_compatibility") != expected_compatibility:
         fail("candidate CLI compatibility differs from release/config.toml")
-    if release_tag != f"runtime-v{runtime_version}":
-        fail("candidate runtime release tag is inconsistent")
+    expected_tag = f"v{cli_version}"
+    if tag != expected_tag:
+        fail(f"tag {tag!r} does not match Cargo version {expected_tag}")
+    if release_tag != expected_tag:
+        fail("candidate runtime lock does not target the Spawnr release tag")
     expected_prefix = (
         f"https://github.com/{config['repository']}/releases/download/{release_tag}/"
     )
@@ -256,15 +248,8 @@ def check_candidate(tag: str, artifacts: pathlib.Path, config: dict, cli_version
     ):
         fail("candidate runtime URL differs from the public release repository")
 
-    if tag.startswith("runtime-v"):
-        if tag != release_tag:
-            fail(f"tag {tag!r} does not match runtime lock {release_tag!r}")
-        check_runtime_candidate(artifacts, candidate_lock)
-        return
-
-    if tag != f"v{cli_version}":
-        fail(f"tag {tag!r} does not match Cargo version v{cli_version}")
-    check_cli_candidate(artifacts, candidate_lock, cli_version, config["repository"])
+    check_runtime_candidate(artifacts, candidate_lock)
+    check_cli_candidate(artifacts, cli_version, config["repository"])
 
 
 def parse_args() -> argparse.Namespace:

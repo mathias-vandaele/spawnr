@@ -33,7 +33,9 @@
       website = releaseConfig.website;
       websiteDomain = lib.removePrefix "https://" website;
       target = releaseConfig.target;
-      runtimeVersion = releaseConfig.runtime_version;
+      # Public releases deliberately ship one Spawnr version. The runtime
+      # remains a separate artifact, but its release version follows the CLI.
+      runtimeVersion = cliVersion;
       cliMinimum = releaseConfig.cli_minimum;
       cliMaximumExclusive = releaseConfig.cli_maximum_exclusive;
 
@@ -147,7 +149,7 @@
           CC_x86_64_unknown_linux_musl = muslLinker;
           buildPhase = ''
             runHook preBuild
-            export SPAWNR_RUNTIME_LOCK_JSON="$(cat ${runtimeLockCandidate}/runtime.lock.json)"
+            export SPAWNR_RUNTIME_LOCK_JSON="$(cat ${runtimeLock}/runtime.lock.json)"
             cargo build --frozen --release --target ${muslTarget} -p spawnr
             runHook postBuild
           '';
@@ -264,7 +266,7 @@
             {
               name = "spawnr";
               version = cliVersion;
-              source_url = "${repositoryUrl}/tree/runtime-v${runtimeVersion}";
+              source_url = "${repositoryUrl}/tree/v${cliVersion}";
               source_hash = "release-tag-and-attestation";
               license_expression = "Apache-2.0";
             }
@@ -557,11 +559,10 @@
             done < <(jq -r '.files[] | [.path, .size_bytes, .sha256] | @tsv' ${runtimeTree}/manifest.json)
           '';
 
-      # This lock is embedded byte-for-byte in the portable CLI. The release
-      # transaction will only publish it after independent builders agree on
-      # the runtime archive digest.
-      runtimeLockCandidate =
-        pkgs.runCommand "spawnr-runtime-${runtimeVersion}-${target}-lock-candidate"
+      # This generated lock is embedded byte-for-byte in the portable CLI and
+      # published beside the runtime in the same versioned GitHub Release.
+      runtimeLock =
+        pkgs.runCommand "spawnr-runtime-${runtimeVersion}-${target}-lock"
           {
             nativeBuildInputs = [
               pkgs.check-jsonschema
@@ -582,11 +583,11 @@
                 target: "${target}",
                 protocol_version: 1,
                 cli_compatibility: {minimum: "${cliMinimum}", maximum_exclusive: "${cliMaximumExclusive}"},
-                release_tag: "runtime-v${runtimeVersion}",
+                release_tag: "v${cliVersion}",
                 archive: {
                   file_name: $archive[0].file_name,
                   format: "tar_zstd",
-                  url: ("${repositoryUrl}/releases/download/runtime-v${runtimeVersion}/" + $archive[0].file_name),
+                  url: ("${repositoryUrl}/releases/download/v${cliVersion}/" + $archive[0].file_name),
                   size_bytes: $archive[0].size_bytes,
                   sha256: $archive[0].sha256,
                   manifest_sha256: $archive[0].manifest_sha256
@@ -752,7 +753,7 @@
               ${runtimeArchive}/spawnr-runtime-${runtimeVersion}-${target}.tar.zst \
               "$out/spawnr-runtime-${runtimeVersion}-${target}.tar.zst"
             install -m0444 ${runtimeArchive}/runtime-metadata.json "$out/runtime-metadata.json"
-            install -m0444 ${runtimeLockCandidate}/runtime.lock.json "$out/runtime.lock.json"
+            install -m0444 ${runtimeLock}/runtime.lock.json "$out/runtime.lock.json"
             install -m0555 ${releaseInstaller}/install.sh "$out/install.sh"
             install -m0444 ${nativePackages}/spawnr_${cliVersion}-1_amd64.deb "$out/spawnr_${cliVersion}-1_amd64.deb"
             install -m0444 ${nativePackages}/spawnr-${cliVersion}-1.x86_64.rpm "$out/spawnr-${cliVersion}-1.x86_64.rpm"
@@ -953,7 +954,7 @@
         bundle = spawnrBundle;
         runtime-tree = runtimeTree;
         runtime-archive = runtimeArchive;
-        runtime-lock-candidate = runtimeLockCandidate;
+        runtime-lock = runtimeLock;
         installer = releaseInstaller;
         native-packages = nativePackages;
         release-artifacts = releaseArtifacts;
@@ -974,7 +975,7 @@
           guestAssets
           runtimeTree
           runtimeArchive
-          runtimeLockCandidate
+          runtimeLock
           releaseInstaller
           nativePackages
           releaseArtifacts

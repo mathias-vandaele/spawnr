@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - "v*"
-      - "runtime-v*"
   workflow_dispatch:
 
 permissions:
@@ -167,32 +166,23 @@ jobs:
         working-directory: verified
         run: sha256sum --check SHA256SUMS
 
-      - name: Select assets for this release channel
+      - name: Collect the unified Spawnr release
         run: |
           mkdir publication
-          case "$GITHUB_REF_NAME" in
-            runtime-v*)
-              cp verified/LICENSE publication/
-              cp verified/THIRD-PARTY-LICENSES.txt publication/
-              cp verified/THIRD-PARTY-NOTICES.md publication/
-              cp verified/runtime-metadata.json publication/
-              cp verified/runtime.lock.json publication/
-              cp verified/runtime-sources.json publication/
-              cp verified/spawnr-runtime-*.spdx.json publication/
-              cp verified/spawnr-runtime-*.tar.zst publication/
-              ;;
-            v*)
-              cp verified/LICENSE publication/
-              cp verified/PKGBUILD publication/
-              cp verified/install.sh publication/
-              cp verified/runtime.lock.json publication/
-              cp verified/spawnr-bin.SRCINFO publication/
-              cp verified/spawnr-*.rpm publication/
-              cp verified/spawnr-*-x86_64-linux publication/
-              cp verified/spawnr_*.deb publication/
-              ;;
-            *) echo "unsupported release tag: $GITHUB_REF_NAME" >&2; exit 1 ;;
-          esac
+          cp verified/LICENSE publication/
+          cp verified/THIRD-PARTY-LICENSES.txt publication/
+          cp verified/THIRD-PARTY-NOTICES.md publication/
+          cp verified/PKGBUILD publication/
+          cp verified/install.sh publication/
+          cp verified/runtime-metadata.json publication/
+          cp verified/runtime.lock.json publication/
+          cp verified/runtime-sources.json publication/
+          cp verified/spawnr-bin.SRCINFO publication/
+          cp verified/spawnr-*.rpm publication/
+          cp verified/spawnr-*-x86_64-linux publication/
+          cp verified/spawnr_*.deb publication/
+          cp verified/spawnr-runtime-*.spdx.json publication/
+          cp verified/spawnr-runtime-*.tar.zst publication/
           (
             cd publication
             find . -maxdepth 1 -type f -printf '%P\0' \
@@ -210,11 +200,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          case "$GITHUB_REF_NAME" in
-            runtime-v*) title="Spawnr runtime ${GITHUB_REF_NAME#runtime-v}" ;;
-            v*) title="Spawnr ${GITHUB_REF_NAME#v}" ;;
-            *) echo "unsupported release tag: $GITHUB_REF_NAME" >&2; exit 1 ;;
-          esac
+          title="Spawnr ${GITHUB_REF_NAME#v}"
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "release already exists: $GITHUB_REF_NAME" >&2
             exit 1
