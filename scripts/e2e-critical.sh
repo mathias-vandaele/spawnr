@@ -24,6 +24,9 @@ offline_bundle="${layout}.offline-bundle"
 open_log=$(mktemp /tmp/spawnr-critical-open.XXXXXX)
 failure_probe=$(mktemp -d /tmp/spawnr-critical-failure.XXXXXX)
 failure_log="$failure_probe/clone.log"
+credential_path="$failure_probe/no-host-credentials"
+mkdir -p -- "$credential_path"
+ln -s /bin/false "$credential_path/gh"
 
 machine_field() {
   python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["machines"][sys.argv[2]][sys.argv[3]])' \
@@ -136,7 +139,7 @@ socket=$(machine_socket "$original")
 
 unset GH_TOKEN GITHUB_TOKEN SSH_AUTH_SOCK
 "$spawnr_bin" init "$fresh" --environment "oci:$layout:v2"
-"$spawnr_bin" start "$fresh"
+PATH="$credential_path:$PATH" "$spawnr_bin" start "$fresh"
 fresh_socket=$(machine_socket "$fresh")
 "$control" --socket "$fresh_socket" /bin/sh -c "$image_environment_probe"
 "$control" --socket "$fresh_socket" /bin/sh -c \
