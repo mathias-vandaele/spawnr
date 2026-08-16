@@ -29,6 +29,7 @@ impl HostCredentials {
                 gh_token: github_token(),
                 ssh_known_hosts: ssh_known_hosts(),
                 ssh_agent: ssh_auth_sock.is_some(),
+                image_env: Vec::new(),
             },
             ssh_auth_sock,
         }

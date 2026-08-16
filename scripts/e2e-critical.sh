@@ -8,6 +8,7 @@ spawnr_bin=${SPAWNR_BIN:-spawnr}
 control=${SPAWNR_E2E_CONTROL:-"$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/e2e-control.py"}
 process_control=${SPAWNR_E2E_PROCESS:-"$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/e2e-process.py"}
 repository=${SPAWNR_E2E_REPOSITORY:-https://github.com/octocat/Hello-World.git}
+image_environment_probe=${SPAWNR_E2E_IMAGE_ENVIRONMENT_PROBE:-:}
 umoci_bin=${SPAWNR_UMOCI:-umoci}
 unshare_bin=${SPAWNR_UNSHARE:-unshare}
 original=spawnr-e2e-critical
@@ -64,14 +65,17 @@ fi
 # direct control requests so their provenance remains unambiguous.
 printf '%s\n' \
   'printf "SPAWNR_CRITICAL_OPEN:%s:%s\n" "$USER" "$PWD"' \
+  '! shopt -q login_shell || exit 91' \
+  "{ $image_environment_probe; } || exit 92" \
   "printf '%s\\n' $history_sentinel" \
-  'test -n "${GH_TOKEN:-}"' \
-  'exit' |
+  'test -n "${GH_TOKEN:-}" || exit 93' \
+  'exit 0' |
   timeout 30 script -qec "$spawnr_bin open $original" "$open_log"
 grep -F "SPAWNR_CRITICAL_OPEN:dev:/workspace/$(machine_field "$original" repository_dir)" "$open_log"
 
 socket=$(machine_socket "$original")
 repository_dir=$(machine_field "$original" repository_dir)
+"$control" --socket "$socket" /bin/sh -c "$image_environment_probe"
 "$control" --socket "$socket" /bin/grep -F "$history_sentinel" \
   /run/spawnr/bash-history
 "$control" --socket "$socket" sudo /bin/sh -c \
@@ -134,6 +138,7 @@ unset GH_TOKEN GITHUB_TOKEN SSH_AUTH_SOCK
 "$spawnr_bin" init "$fresh" --environment "oci:$layout:v2"
 "$spawnr_bin" start "$fresh"
 fresh_socket=$(machine_socket "$fresh")
+"$control" --socket "$fresh_socket" /bin/sh -c "$image_environment_probe"
 "$control" --socket "$fresh_socket" /bin/sh -c \
   "command -v git >/dev/null && test \"\$(cat /opt/spawnr-critical-environment)\" = $environment_sentinel"
 "$control" --socket "$fresh_socket" /bin/sh -c \

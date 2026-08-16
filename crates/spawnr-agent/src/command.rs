@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
@@ -17,7 +18,8 @@ use vsock::VsockStream;
 const MAX_CAPTURED_OUTPUT: usize = 8 * 1024 * 1024;
 const MAX_ARGV_ITEMS: usize = 4096;
 const MAX_ARG_BYTES: usize = 1024 * 1024;
-const MAX_ENV_ITEMS: usize = 512;
+const DEFAULT_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+const ARG_MAX_RESERVE: usize = 32 * 1024;
 
 pub fn clone_repository(
     workspace: &Path,
@@ -375,19 +377,82 @@ fn populate_environment(
     session_dir: &Path,
     env: &BTreeMap<String, String>,
 ) -> Result<()> {
-    crate::session::apply_environment(command, session_dir)?;
+    // Build an explicit child environment. The PID 1 agent's own environment
+    // is an implementation detail and must not leak into guest commands.
+    command.env_clear().env("PATH", DEFAULT_PATH);
+    for (name, value) in crate::session::image_environment(session_dir)? {
+        command.env(name, value);
+    }
     command
         .env("HOME", &user.home)
         .env("USER", &user.name)
         .env("LOGNAME", &user.name)
-        .env("SHELL", &user.shell)
-        .env(
-            "PATH",
-            "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-        );
+        .env("SHELL", &user.shell);
+    crate::session::apply_environment(command, session_dir)?;
     for (name, value) in env {
         command.env(name, value);
     }
+    validate_effective_process_size(command)
+}
+
+fn validate_effective_process_size(command: &Command) -> Result<()> {
+    let mut environment_bytes = 0_usize;
+    let mut environment_items = 0_usize;
+    for (name, value) in command.get_envs() {
+        let Some(value) = value else {
+            continue;
+        };
+        environment_items = environment_items
+            .checked_add(1)
+            .context("effective environment item count overflow")?;
+        environment_bytes = environment_bytes
+            .checked_add(name.as_bytes().len())
+            .and_then(|bytes| bytes.checked_add(value.as_bytes().len()))
+            .and_then(|bytes| bytes.checked_add(2))
+            .context("effective environment size overflow")?;
+    }
+    ensure!(
+        environment_bytes <= crate::session::MAX_ENVIRONMENT_BYTES,
+        "effective environment exceeds {} bytes",
+        crate::session::MAX_ENVIRONMENT_BYTES
+    );
+
+    let mut argument_bytes = command
+        .get_program()
+        .as_bytes()
+        .len()
+        .checked_add(1)
+        .context("argument size overflow")?;
+    let mut argument_items = 1_usize;
+    for argument in command.get_args() {
+        argument_items = argument_items
+            .checked_add(1)
+            .context("argument item count overflow")?;
+        argument_bytes = argument_bytes
+            .checked_add(argument.as_bytes().len())
+            .and_then(|bytes| bytes.checked_add(1))
+            .context("argument size overflow")?;
+    }
+    let pointer_bytes = argument_items
+        .checked_add(environment_items)
+        .and_then(|items| items.checked_add(2))
+        .and_then(|items| items.checked_mul(std::mem::size_of::<*const libc::c_char>()))
+        .context("process argument pointer size overflow")?;
+    let process_bytes = argument_bytes
+        .checked_add(environment_bytes)
+        .and_then(|bytes| bytes.checked_add(pointer_bytes))
+        .context("process argument and environment size overflow")?;
+    // SAFETY: sysconf is read-only and _SC_ARG_MAX requires no pointer.
+    let system_limit = unsafe { libc::sysconf(libc::_SC_ARG_MAX) };
+    let argument_limit = if system_limit > 0 {
+        system_limit as usize
+    } else {
+        2 * 1024 * 1024
+    };
+    ensure!(
+        process_bytes <= argument_limit.saturating_sub(ARG_MAX_RESERVE),
+        "arguments and environment exceed the guest execve limit"
+    );
     Ok(())
 }
 
@@ -560,17 +625,25 @@ fn validate_argv(argv: &[String]) -> Result<()> {
 }
 
 fn validate_environment(env: &BTreeMap<String, String>) -> Result<()> {
-    ensure!(env.len() <= MAX_ENV_ITEMS, "too many environment variables");
+    ensure!(
+        env.len() <= crate::session::MAX_ENVIRONMENT_ITEMS,
+        "too many environment variables"
+    );
+    let mut total = 0_usize;
     for (name, value) in env {
         ensure!(
-            !name.is_empty()
-                && name
-                    .bytes()
-                    .all(|byte| byte == b'_' || byte.is_ascii_alphanumeric())
-                && !name.as_bytes()[0].is_ascii_digit(),
+            crate::session::valid_environment_name(name),
             "invalid environment variable name {name:?}"
         );
-        validate_text("environment value", value, MAX_ARG_BYTES)?;
+        ensure!(!value.contains('\0'), "environment value contains NUL");
+        total = total
+            .checked_add(name.len().saturating_add(value.len()).saturating_add(2))
+            .context("environment size overflow")?;
+        ensure!(
+            total <= crate::session::MAX_ENVIRONMENT_BYTES,
+            "environment exceeds {} bytes",
+            crate::session::MAX_ENVIRONMENT_BYTES
+        );
     }
     Ok(())
 }
@@ -672,11 +745,101 @@ mod tests {
 
     #[test]
     fn validates_environment_names() {
-        assert!(validate_environment(&BTreeMap::from([("SAFE_2".into(), "value".into())])).is_ok());
+        assert!(
+            validate_environment(&BTreeMap::from([
+                ("SAFE_2".into(), "value".into()),
+                ("EMPTY".into(), "".into()),
+            ]))
+            .is_ok()
+        );
         assert!(
             validate_environment(&BTreeMap::from([("BAD=NAME".into(), "value".into())])).is_err()
         );
         assert!(validate_environment(&BTreeMap::from([("2BAD".into(), "value".into())])).is_err());
+        assert!(validate_environment(&BTreeMap::from([("BAD".into(), "a\0b".into())])).is_err());
+    }
+
+    #[test]
+    fn child_environment_layers_image_identity_session_and_request() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let session_dir = tempfile::tempdir().unwrap();
+        let image_path = session_dir.path().join(crate::session::IMAGE_ENV_FILE);
+        fs::write(
+            &image_path,
+            b"PATH=/image/bin\0HOME=/root\0USER=root\0GH_TOKEN=image\0GITHUB_TOKEN=image\0FOO=image\0EMPTY=\0",
+        )
+        .unwrap();
+        fs::set_permissions(&image_path, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::write(
+            session_dir.path().join(crate::session::GH_TOKEN_FILE),
+            "host-token",
+        )
+        .unwrap();
+        let user = User {
+            name: "dev".into(),
+            uid: 1000,
+            gid: 1000,
+            home: "/home/dev".into(),
+            shell: "/bin/bash".into(),
+        };
+        let request = BTreeMap::from([
+            ("FOO".into(), "request".into()),
+            ("HISTFILE".into(), "/run/spawnr/bash-history".into()),
+        ]);
+        let mut command = Command::new("/usr/bin/env");
+        command.env("PID1_ONLY", "must-be-cleared");
+        populate_environment(&mut command, &user, session_dir.path(), &request).unwrap();
+        let environment = command
+            .get_envs()
+            .filter_map(|(name, value)| {
+                value.map(|value| {
+                    (
+                        name.to_string_lossy().into_owned(),
+                        value.to_string_lossy().into_owned(),
+                    )
+                })
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        assert_eq!(environment["PATH"], "/image/bin");
+        assert_eq!(environment["HOME"], "/home/dev");
+        assert_eq!(environment["USER"], "dev");
+        assert_eq!(environment["LOGNAME"], "dev");
+        assert_eq!(environment["SHELL"], "/bin/bash");
+        assert_eq!(environment["GH_TOKEN"], "host-token");
+        assert!(!environment.contains_key("GITHUB_TOKEN"));
+        assert_eq!(environment["FOO"], "request");
+        assert_eq!(environment["EMPTY"], "");
+        assert_eq!(environment["HISTFILE"], "/run/spawnr/bash-history");
+        assert!(!environment.contains_key("PID1_ONLY"));
+
+        fs::remove_file(session_dir.path().join(crate::session::GH_TOKEN_FILE)).unwrap();
+        let mut without_token = Command::new("/usr/bin/env");
+        populate_environment(
+            &mut without_token,
+            &user,
+            session_dir.path(),
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        let environment = without_token
+            .get_envs()
+            .filter_map(|(name, value)| value.map(|value| (name, value)))
+            .collect::<BTreeMap<_, _>>();
+        assert!(!environment.contains_key(std::ffi::OsStr::new("GH_TOKEN")));
+        assert!(!environment.contains_key(std::ffi::OsStr::new("GITHUB_TOKEN")));
+    }
+
+    #[test]
+    fn final_environment_is_bounded_after_layering() {
+        let mut command = Command::new("/bin/true");
+        command
+            .env_clear()
+            .env("IMAGE_VALUE", "i".repeat(600 * 1024))
+            .env("REQUEST_VALUE", "r".repeat(600 * 1024));
+        let error = validate_effective_process_size(&command).unwrap_err();
+        assert!(error.to_string().contains("effective environment exceeds"));
     }
 
     #[test]

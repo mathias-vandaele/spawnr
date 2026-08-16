@@ -20,12 +20,20 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::thread;
 use uuid::Uuid;
 
 const DEFAULT_ENVIRONMENT_BYTES: u64 = 32 * 1024 * 1024 * 1024;
 const CACHE_METADATA: &str = "spawnr-environment.json";
 const CACHE_DISK: &str = "environment.raw";
-const INTEGRATION_CACHE_SCHEMA: &[u8] = b"spawnr-guest-integration-v2";
+const MAX_GUEST_ENVIRONMENT_ITEMS: usize = 512;
+const MAX_GUEST_ENVIRONMENT_BYTES: usize = 1024 * 1024;
+// JSON escaping can expand a byte to a six-byte `\u00xx` sequence. Keep both
+// subprocess output and cache-metadata decoding bounded while still admitting
+// every environment which satisfies MAX_GUEST_ENVIRONMENT_BYTES.
+const MAX_GUEST_ENVIRONMENT_JSON_BYTES: usize = 8 * 1024 * 1024;
+const MAX_SUBPROCESS_DIAGNOSTIC_BYTES: usize = 1024 * 1024;
+const INTEGRATION_CACHE_SCHEMA: &[u8] = b"spawnr-guest-integration-v3";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PreparedMetadata {
@@ -34,6 +42,10 @@ pub struct PreparedMetadata {
     pub cache_key: String,
     pub architecture: String,
     pub os: String,
+    /// Exact OCI Config.Env entries. Ordering is retained so duplicate names
+    /// keep the OCI runtime's last-entry-wins behavior.
+    #[serde(default)]
+    pub config_env: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -123,9 +135,38 @@ pub fn prepared_metadata(disk: &Path) -> Result<PreparedMetadata> {
     let directory = disk
         .parent()
         .context("prepared environment has no cache directory")?;
-    let file =
-        File::open(directory.join(CACHE_METADATA)).context("open prepared environment metadata")?;
-    serde_json::from_reader(file).context("decode prepared environment metadata")
+    let metadata = read_prepared_metadata(&directory.join(CACHE_METADATA))
+        .context("read prepared environment metadata")?;
+    validate_prepared_metadata(&metadata, true)?;
+    Ok(metadata)
+}
+
+/// Return the immutable source image environment bound to a machine's cache.
+/// Older machines created before Config.Env support intentionally receive an
+/// empty baseline instead of becoming unbootable after a CLI upgrade.
+pub fn machine_config_env(paths: &Paths, record: &MachineRecord) -> Result<Vec<String>> {
+    let cache_key = record
+        .environment
+        .base_cache_key
+        .as_deref()
+        .context("machine metadata has no immutable OCI base cache identity")?;
+    ensure_hex_digest(cache_key)?;
+    let metadata = read_prepared_metadata(&paths.images_dir().join(cache_key).join(CACHE_METADATA))
+        .context("read OCI base metadata")?;
+    validate_prepared_metadata(&metadata, false)?;
+    ensure!(
+        metadata.cache_key == cache_key,
+        "machine OCI cache metadata has the wrong identity"
+    );
+    if let Some(expected) = &record.environment.manifest_digest {
+        ensure!(
+            expected == &metadata.source_digest,
+            "machine OCI digest does not match its cache metadata"
+        );
+    }
+    let environment = metadata.config_env.unwrap_or_default();
+    validate_image_environment(&environment)?;
+    Ok(environment)
 }
 
 /// Publish only the environment block device. The workspace disk and session
@@ -148,9 +189,9 @@ pub fn publish_machine_environment(
         .context("machine metadata has no immutable OCI base cache identity")?;
     ensure_hex_digest(cache_key)?;
     let cache = paths.images_dir().join(cache_key);
-    let metadata: PreparedMetadata = serde_json::from_reader(
-        File::open(cache.join(CACHE_METADATA)).context("open OCI base metadata")?,
-    )?;
+    let metadata =
+        read_prepared_metadata(&cache.join(CACHE_METADATA)).context("read OCI base metadata")?;
+    validate_prepared_metadata(&metadata, false)?;
     if let Some(expected) = &record.environment.manifest_digest {
         ensure!(
             expected == &metadata.source_digest,
@@ -234,6 +275,9 @@ fn build_cache(
             "local OCI tag changed while it was being copied (expected {digest}, copied {copied}); retry"
         );
     }
+    let image_environment =
+        inspect_image_environment(tools, &format!("oci:{}:base", layout.display()), verbose)
+            .context("read OCI image environment")?;
 
     let mut unpack = mapped_command(&tools.unshare, &tools.umoci);
     unpack
@@ -276,6 +320,7 @@ fn build_cache(
         cache_key: cache_key.to_owned(),
         architecture: "amd64".into(),
         os: "linux".into(),
+        config_env: Some(image_environment),
     };
     write_json(&temporary.join(CACHE_METADATA), &metadata)
         .context("write immutable OCI cache metadata")?;
@@ -459,11 +504,140 @@ fn inspect_digest(tools: &Tools, reference: &str, verbose: u8) -> Result<String>
         .arg(reference);
     let output = run_output(&mut command, verbose, "resolve OCI environment digest")?;
     let digest = String::from_utf8(output.stdout)?.trim().to_owned();
-    ensure!(
-        digest.starts_with("sha256:"),
-        "registry returned invalid digest {digest:?}"
-    );
+    ensure_manifest_digest(&digest).context("registry returned an invalid manifest digest")?;
     Ok(digest)
+}
+
+/// Read Config.Env from the immutable layout produced by `skopeo copy`.
+///
+/// Using the copied layout is important: consulting the user's source tag a
+/// second time would let a concurrent tag move pair one manifest's digest with
+/// another manifest's environment. The Go-template JSON encoder gives us only
+/// the Env array rather than the rest of the potentially large image config.
+fn inspect_image_environment(
+    tools: &Tools,
+    copied_reference: &str,
+    verbose: u8,
+) -> Result<Vec<String>> {
+    ensure!(
+        copied_reference.starts_with("oci:"),
+        "image environment must be inspected from a copied OCI layout"
+    );
+    let mut command = skopeo_command(tools);
+    command
+        .arg("--insecure-policy")
+        .arg("inspect")
+        .args(["--override-os", "linux", "--override-arch", "amd64"])
+        .args(["--format", "{{json .Env}}"])
+        .arg(copied_reference);
+    let output = run_output_bounded(
+        &mut command,
+        verbose,
+        "read OCI image environment",
+        MAX_GUEST_ENVIRONMENT_JSON_BYTES,
+    )?;
+    parse_image_environment_json(&output.stdout)
+}
+
+fn parse_image_environment_json(encoded: &[u8]) -> Result<Vec<String>> {
+    ensure!(
+        encoded.len() <= MAX_GUEST_ENVIRONMENT_JSON_BYTES,
+        "OCI Config.Env JSON exceeds {MAX_GUEST_ENVIRONMENT_JSON_BYTES} bytes"
+    );
+    // Skopeo renders a missing Env as JSON null. Treat that identically to an
+    // empty array, while rejecting every other unexpected template shape.
+    let environment: Option<Vec<String>> =
+        serde_json::from_slice(encoded).context("decode OCI Config.Env JSON")?;
+    let environment = environment.unwrap_or_default();
+    validate_image_environment(&environment)?;
+    Ok(environment)
+}
+
+fn validate_image_environment(environment: &[String]) -> Result<()> {
+    ensure!(
+        environment.len() <= MAX_GUEST_ENVIRONMENT_ITEMS,
+        "OCI Config.Env has more than {MAX_GUEST_ENVIRONMENT_ITEMS} entries"
+    );
+    let mut total_bytes = 0_usize;
+    for (index, entry) in environment.iter().enumerate() {
+        total_bytes = total_bytes
+            .checked_add(entry.len())
+            .and_then(|bytes| bytes.checked_add(1))
+            .context("OCI Config.Env size overflow")?;
+        ensure!(
+            total_bytes <= MAX_GUEST_ENVIRONMENT_BYTES,
+            "OCI Config.Env exceeds {MAX_GUEST_ENVIRONMENT_BYTES} bytes"
+        );
+        let (name, value) = entry
+            .split_once('=')
+            .with_context(|| format!("OCI Config.Env entry {index} has no '=' separator"))?;
+        // OCI follows execve(2), not shell assignment syntax. Names such as
+        // `1NAME` and `org.example.option` are valid process-environment keys
+        // even though a shell cannot create them with `export`.
+        ensure!(
+            !name.is_empty() && !name.contains('\0'),
+            "OCI Config.Env entry {index} has an invalid variable name"
+        );
+        ensure!(
+            !value.contains('\0'),
+            "OCI Config.Env entry {index} contains NUL"
+        );
+    }
+    Ok(())
+}
+
+fn validate_prepared_metadata(
+    metadata: &PreparedMetadata,
+    require_environment: bool,
+) -> Result<()> {
+    normalize_source_reference(&metadata.source_reference)
+        .context("cache metadata has an invalid source reference")?;
+    ensure_manifest_digest(&metadata.source_digest)
+        .context("cache metadata has an invalid source digest")?;
+    ensure_hex_digest(&metadata.cache_key).context("cache metadata has an invalid cache key")?;
+    ensure!(
+        metadata.architecture == "amd64" && metadata.os == "linux",
+        "cache metadata has unsupported platform {}/{}",
+        metadata.os,
+        metadata.architecture
+    );
+    match &metadata.config_env {
+        Some(environment) => validate_image_environment(environment),
+        None if require_environment => {
+            bail!("cache metadata does not contain the OCI Config.Env field")
+        }
+        None => Ok(()),
+    }
+}
+
+fn read_prepared_metadata(path: &Path) -> Result<PreparedMetadata> {
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+        .open(path)
+        .with_context(|| format!("open {}", path.display()))?;
+    let file_metadata = file
+        .metadata()
+        .with_context(|| format!("inspect {}", path.display()))?;
+    ensure!(
+        file_metadata.is_file(),
+        "OCI cache metadata {} is not a regular file",
+        path.display()
+    );
+    ensure!(
+        file_metadata.len() <= MAX_GUEST_ENVIRONMENT_JSON_BYTES as u64,
+        "OCI cache metadata exceeds {MAX_GUEST_ENVIRONMENT_JSON_BYTES} bytes"
+    );
+    let mut encoded = Vec::with_capacity(file_metadata.len() as usize);
+    (&mut file)
+        .take(MAX_GUEST_ENVIRONMENT_JSON_BYTES as u64 + 1)
+        .read_to_end(&mut encoded)
+        .with_context(|| format!("read {}", path.display()))?;
+    ensure!(
+        encoded.len() <= MAX_GUEST_ENVIRONMENT_JSON_BYTES,
+        "OCI cache metadata exceeds {MAX_GUEST_ENVIRONMENT_JSON_BYTES} bytes"
+    );
+    serde_json::from_slice(&encoded).context("decode OCI cache metadata")
 }
 
 fn integration_cache_key(tools: &Tools, source_digest: &str) -> Result<String> {
@@ -576,15 +750,17 @@ fn valid_cache(cache: &Path, disk: &Path, digest: &str, cache_key: &str) -> Resu
     if validate_ext4_image(disk).is_err() {
         return Ok(false);
     }
-    let file = match File::open(cache.join(CACHE_METADATA)) {
-        Ok(file) => file,
-        Err(_) => return Ok(false),
-    };
-    let metadata: PreparedMetadata = match serde_json::from_reader(file) {
+    let metadata = match read_prepared_metadata(&cache.join(CACHE_METADATA)) {
         Ok(metadata) => metadata,
         Err(_) => return Ok(false),
     };
-    Ok(metadata.source_digest == digest && metadata.cache_key == cache_key)
+    if validate_prepared_metadata(&metadata, true).is_err() {
+        return Ok(false);
+    }
+    Ok(metadata.source_digest == digest
+        && metadata.cache_key == cache_key
+        && metadata.architecture == "amd64"
+        && metadata.os == "linux")
 }
 
 fn mapped_command(unshare: &Path, program: &Path) -> Command {
@@ -621,6 +797,78 @@ fn run_output(command: &mut Command, verbose: u8, operation: &str) -> Result<Out
         bail!("{operation} ({})\n{}", output.status, diagnostic.trim_end());
     }
     Ok(output)
+}
+
+/// Execute a command while retaining at most `stdout_limit + 1` bytes from
+/// stdout. Stderr is drained concurrently to avoid a full pipe deadlock, but
+/// only a bounded diagnostic prefix is retained.
+fn run_output_bounded(
+    command: &mut Command,
+    verbose: u8,
+    operation: &str,
+    stdout_limit: usize,
+) -> Result<Output> {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command
+        .spawn()
+        .with_context(|| format!("{operation}: execute {:?}", command.get_program()))?;
+    let mut stdout = child.stdout.take().context("capture subprocess stdout")?;
+    let stderr = child.stderr.take().context("capture subprocess stderr")?;
+    let stderr_thread =
+        thread::spawn(move || drain_bounded(stderr, MAX_SUBPROCESS_DIAGNOSTIC_BYTES));
+
+    let mut stdout_bytes = Vec::with_capacity(stdout_limit.min(64 * 1024));
+    let stdout_result = (&mut stdout)
+        .take(stdout_limit as u64 + 1)
+        .read_to_end(&mut stdout_bytes);
+    if let Err(error) = stdout_result {
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = stderr_thread.join();
+        return Err(error).with_context(|| format!("{operation}: read stdout"));
+    }
+    if stdout_bytes.len() > stdout_limit {
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = stderr_thread.join();
+        bail!("{operation}: stdout exceeds {stdout_limit} bytes");
+    }
+
+    let status = child
+        .wait()
+        .with_context(|| format!("{operation}: wait for subprocess"))?;
+    let stderr_bytes = stderr_thread
+        .join()
+        .map_err(|_| anyhow::anyhow!("{operation}: stderr reader panicked"))?
+        .with_context(|| format!("{operation}: read stderr"))?;
+    if verbose > 0 && !stderr_bytes.is_empty() {
+        std::io::stderr().write_all(&stderr_bytes).ok();
+    }
+    if !status.success() {
+        let diagnostic = String::from_utf8_lossy(&stderr_bytes);
+        bail!("{operation} ({status})\n{}", diagnostic.trim_end());
+    }
+    Ok(Output {
+        status,
+        stdout: stdout_bytes,
+        stderr: stderr_bytes,
+    })
+}
+
+fn drain_bounded(mut reader: impl Read, retained_limit: usize) -> std::io::Result<Vec<u8>> {
+    let mut retained = Vec::with_capacity(retained_limit.min(64 * 1024));
+    let mut buffer = [0_u8; 16 * 1024];
+    loop {
+        let count = reader.read(&mut buffer)?;
+        if count == 0 {
+            return Ok(retained);
+        }
+        let remaining = retained_limit.saturating_sub(retained.len());
+        retained.extend_from_slice(&buffer[..count.min(remaining)]);
+    }
 }
 
 fn run_e2fsck(program: &Path, disk: &Path, verbose: u8) -> Result<()> {
@@ -804,6 +1052,13 @@ fn ensure_hex_digest(value: &str) -> Result<()> {
     Ok(())
 }
 
+fn ensure_manifest_digest(value: &str) -> Result<()> {
+    let hexadecimal = value
+        .strip_prefix("sha256:")
+        .context("OCI manifest digest does not use sha256")?;
+    ensure_hex_digest(hexadecimal).context("invalid OCI manifest digest")
+}
+
 fn sync_directory(path: &Path) -> Result<()> {
     File::open(path)?.sync_all()?;
     Ok(())
@@ -869,6 +1124,17 @@ mounted=0
 mod tests {
     use super::*;
 
+    fn metadata_with_environment(config_env: Option<Vec<String>>) -> PreparedMetadata {
+        PreparedMetadata {
+            source_reference: "ubuntu".into(),
+            source_digest: format!("sha256:{}", "1".repeat(64)),
+            cache_key: "2".repeat(64),
+            architecture: "amd64".into(),
+            os: "linux".into(),
+            config_env,
+        }
+    }
+
     #[test]
     fn normalizes_registry_references_without_docker_daemon() {
         assert_eq!(
@@ -908,6 +1174,82 @@ mod tests {
             immutable_pull_reference("oci:/tmp/layout:v4", &digest).unwrap(),
             "oci:/tmp/layout:v4"
         );
+    }
+
+    #[test]
+    fn parses_ordered_oci_environment_json() {
+        let environment = parse_image_environment_json(
+            br#"["PATH=/opt/bin:/usr/bin","EMPTY=","TOKEN=a=b","PATH=/bin"]"#,
+        )
+        .unwrap();
+        assert_eq!(
+            environment,
+            ["PATH=/opt/bin:/usr/bin", "EMPTY=", "TOKEN=a=b", "PATH=/bin"]
+        );
+        assert!(parse_image_environment_json(b"null").unwrap().is_empty());
+    }
+
+    #[test]
+    fn rejects_malformed_or_oversized_oci_environment() {
+        for encoded in [
+            br#"["MISSING_SEPARATOR"]"#.as_slice(),
+            br#"["=empty-name"]"#.as_slice(),
+            br#"["BAD\u0000NAME=value"]"#.as_slice(),
+            br#"["GOOD=contains\u0000nul"]"#.as_slice(),
+        ] {
+            assert!(parse_image_environment_json(encoded).is_err());
+        }
+
+        assert!(
+            parse_image_environment_json(
+                br#"["9STARTS_WITH_DIGIT=value","HAS-DASH=value","org.example.option=yes"]"#
+            )
+            .is_ok()
+        );
+
+        let too_many = vec!["A=value".to_owned(); MAX_GUEST_ENVIRONMENT_ITEMS + 1];
+        assert!(validate_image_environment(&too_many).is_err());
+        let too_large = vec![format!("A={}", "x".repeat(MAX_GUEST_ENVIRONMENT_BYTES))];
+        assert!(validate_image_environment(&too_large).is_err());
+        assert!(
+            parse_image_environment_json(&vec![b' '; MAX_GUEST_ENVIRONMENT_JSON_BYTES + 1])
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn v3_cache_metadata_requires_a_valid_environment_field() {
+        let valid = metadata_with_environment(Some(vec!["PATH=/usr/bin:/bin".into()]));
+        validate_prepared_metadata(&valid, true).unwrap();
+
+        let legacy = metadata_with_environment(None);
+        assert!(validate_prepared_metadata(&legacy, false).is_ok());
+        assert!(validate_prepared_metadata(&legacy, true).is_err());
+
+        let invalid = metadata_with_environment(Some(vec!["=empty-name".into()]));
+        assert!(validate_prepared_metadata(&invalid, true).is_err());
+    }
+
+    #[test]
+    fn cache_validation_rejects_missing_environment_metadata() {
+        let temporary = tempfile::tempdir().unwrap();
+        let cache = temporary.path().join("cache");
+        fs::create_dir(&cache).unwrap();
+        let disk = cache.join(CACHE_DISK);
+        let mut file = File::create(&disk).unwrap();
+        file.set_len(2048).unwrap();
+        file.seek(SeekFrom::Start(1024 + 0x38)).unwrap();
+        file.write_all(&0xEF53_u16.to_le_bytes()).unwrap();
+        drop(file);
+
+        let valid = metadata_with_environment(Some(Vec::new()));
+        write_json(&cache.join(CACHE_METADATA), &valid).unwrap();
+        assert!(valid_cache(&cache, &disk, &valid.source_digest, &valid.cache_key).unwrap());
+
+        fs::remove_file(cache.join(CACHE_METADATA)).unwrap();
+        let legacy = metadata_with_environment(None);
+        write_json(&cache.join(CACHE_METADATA), &legacy).unwrap();
+        assert!(!valid_cache(&cache, &disk, &legacy.source_digest, &legacy.cache_key).unwrap());
     }
 
     #[test]

@@ -84,15 +84,17 @@ For a registry reference, creation follows this sequence:
    agent, BusyBox, DHCP hook, and integration schema.
 3. Pin registry pulls to that digest (and verify local-layout copies) before
    pulling directly into an OCI image layout with `skopeo copy`.
-4. Run `umoci unpack` in a subordinate-ID user namespace. This applies normal
+4. Read and validate the copied image's ordered `Config.Env`, then bind it to
+   the digest-specific cache metadata.
+5. Run `umoci unpack` in a subordinate-ID user namespace. This applies normal
    OCI layer, ownership, metadata, symlink, and whiteout semantics without
    requiring a privileged container daemon.
-5. Inject the static guest integration into the unpacked filesystem.
-6. Use `mkfs.ext4 -d` in the same ownership mapping to materialize a sparse raw
+6. Inject the static guest integration into the unpacked filesystem.
+7. Use `mkfs.ext4 -d` in the same ownership mapping to materialize a sparse raw
    root filesystem labeled `SPAWNR_ENV`.
-7. Atomically install the finished cache entry. Concurrent creation of the
+8. Atomically install the finished cache entry. Concurrent creation of the
    same environment is serialized with a file lock.
-8. Give each machine its own reflink copy of the cached disk where supported;
+9. Give each machine its own reflink copy of the cached disk where supported;
    otherwise use a sparse extent-aware copy.
 
 The cached base is never attached writable to a VM. A tag is resolved before
@@ -169,6 +171,26 @@ The health response includes the protocol version, hostname, and whether the
 workspace separation proof holds. A start is successful only after the agent
 answers health checks.
 
+## Guest command environment
+
+The agent does not leak its own process environment into guest children. It
+starts from an empty environment and composes each clone, workspace-status,
+non-TTY exec, and interactive command from these layers:
+
+| Layer, lowest to highest precedence | Effect |
+|---|---|
+| Safe fallback | Supplies `PATH` only when the image has no `PATH` |
+| OCI image | Applies validated `Config.Env` in order; the last duplicate name wins |
+| Guest identity | Fixes `HOME`, `USER`, `LOGNAME`, and `SHELL` for `dev` |
+| Session capabilities | Overrides or clears managed Git, GitHub, and SSH controls |
+| Request | Applies explicit operation values, including `open`'s `HISTFILE` |
+
+This keeps image-defined toolchain defaults while preventing baked image
+values from masquerading as current host identity capabilities. Cache metadata
+created before this feature has no recorded `Config.Env`; machines already
+bound to such a cache deliberately retain an empty image baseline and the safe
+fallback path. Newly created machines use the current metadata format.
+
 ## Control plane and interactive access
 
 Cloud Hypervisor's hybrid-vsock backend is represented by a Unix socket inside
@@ -181,12 +203,13 @@ its own guest thread, so an interactive session does not block health or
 shutdown requests. PTY data, resize notifications, signals, and exit status
 use a bounded binary frame format.
 
-`spawnr open` starts a stopped VM, opens `/bin/bash -l` as `dev`, and selects
-`/workspace/<repository>` as its working directory when applicable. This path
-is private vsock access, not an exposed network management service. Bash
-receives `HISTFILE=/run/spawnr/bash-history`, placing ordinary history in
+`spawnr open` starts a stopped VM, opens interactive non-login `/bin/bash -i` as
+`dev`, and selects `/workspace/<repository>` as its working directory when
+applicable. This path is private vsock access, not an exposed network management
+service. Standard Bash behavior reads `~/.bashrc`, not the login-profile chain.
+Bash receives `HISTFILE=/run/spawnr/bash-history`, placing ordinary history in
 session tmpfs rather than the publishable home directory. An image-controlled
-login profile can override that environment variable.
+`~/.bashrc` can override that environment variable after startup.
 
 ## Networking
 
@@ -212,6 +235,11 @@ pipeline is:
    delta layer, including correct whiteouts, modes, ownership, symlinks, and
    mutations beneath image-declared `VOLUME` paths.
 6. Push the resulting image with `skopeo copy` to a registry or OCI layout.
+
+Because repacking starts from the original OCI layout, its configuration,
+including `Config.Env`, remains part of the published image and is extracted
+again on a fresh import. Runtime shell exports are process state and do not
+modify that metadata.
 
 Workspace storage never appears in this function signature or subprocess
 argument list. Guest session tmpfs never resides on the environment block

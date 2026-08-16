@@ -90,16 +90,42 @@ short-lived agent keys for hostile workloads. Stop the machine to revoke the
 forwarded connection.
 
 Likewise, a supplied GitHub token grants its configured scope to guest
-processes during that session. Environment variables take precedence. When
-they are absent and GitHub CLI is available, Spawnr makes a bounded,
-non-interactive `gh auth token --hostname github.com` lookup on the host. It
-does not copy GitHub CLI configuration into the guest. Use a narrowly scoped,
-short-lived token.
+processes during that session. Among host token sources, `GH_TOKEN` and
+`GITHUB_TOKEN` take precedence. When they are absent and GitHub CLI is
+available, Spawnr makes a bounded, non-interactive
+`gh auth token --hostname github.com` lookup on the host. It does not copy
+GitHub CLI configuration into the guest. Use a narrowly scoped, short-lived
+token.
+
 `spawnr open` sets `HISTFILE=/run/spawnr/bash-history`, so ordinary Bash
 history expires with the session instead of entering a published environment.
-An image-controlled login profile can override this value. A process can also
-deliberately copy or print a credential into an environment-owned file;
-structural separation cannot undo that data flow.
+The shell is non-login `/bin/bash -i`; an image-controlled `~/.bashrc` can
+override this value after Bash starts. A process can also deliberately copy or
+print a credential into an environment-owned file; structural separation
+cannot undo that data flow.
+
+## OCI environment variables
+
+OCI `Config.Env` is image metadata, so Spawnr treats it as untrusted, durable
+environment defaults rather than host identity or session state. Entries are
+read only from the digest-verified copied image, bounded and validated, and
+then applied to every guest child after clearing the agent's process
+environment. Duplicate names use the OCI runtime convention that the last
+entry wins.
+
+Spawnr layers current session controls and the fixed `dev` identity over those
+defaults. In particular, image values cannot select `HOME`, `USER`, `LOGNAME`,
+or `SHELL`; cannot replace the generated Git configuration; and cannot retain
+a baked GitHub-token or SSH-agent control variable when the corresponding host
+capability is absent. Explicit operation variables are applied last. These
+rules protect Spawnr-owned control names, not arbitrary application variables.
+Interactive `.bashrc` code executes afterward and can still alter the shell's
+environment.
+
+Never bake a secret into OCI `Config.Env`. It remains visible in image and
+cache metadata, survives publishing, and is not protected by session tmpfs.
+Filesystem publication preserves the source OCI configuration; exporting a
+variable inside a guest does not update that configuration.
 
 ## Guest control plane
 

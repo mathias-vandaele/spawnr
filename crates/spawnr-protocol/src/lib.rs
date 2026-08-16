@@ -46,6 +46,10 @@ pub struct SessionConfig {
     /// Host-owned public SSH host keys, copied only into guest session tmpfs.
     pub ssh_known_hosts: Option<String>,
     pub ssh_agent: bool,
+    /// Immutable OCI Config.Env entries for this machine. Older hosts omit the
+    /// field, so guests must treat it as an empty environment baseline.
+    #[serde(default)]
+    pub image_env: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -173,5 +177,26 @@ mod tests {
         let bytes = ((MAX_CONTROL_FRAME + 1) as u32).to_be_bytes();
         let error = read_json::<Request>(&bytes[..]).unwrap_err().to_string();
         assert!(error.contains("oversized"));
+    }
+
+    #[test]
+    fn session_config_defaults_missing_image_environment() {
+        let config: SessionConfig = serde_json::from_str(
+            r#"{"git_user_name":null,"git_user_email":null,"git_signing_key":null,"gh_token":null,"ssh_known_hosts":null,"ssh_agent":false}"#,
+        )
+        .unwrap();
+        assert!(config.image_env.is_empty());
+
+        let config = SessionConfig {
+            image_env: vec!["PATH=/opt/tool/bin:/usr/bin".into(), "EMPTY=".into()],
+            ..SessionConfig::default()
+        };
+        let encoded = serde_json::to_vec(&config).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<SessionConfig>(&encoded)
+                .unwrap()
+                .image_env,
+            config.image_env
+        );
     }
 }

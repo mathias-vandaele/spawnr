@@ -203,6 +203,14 @@ Spawnr treats an OCI image as a Linux filesystem distribution, not as a
 container application. Its entrypoint and command are not run. Spawnr injects
 its static guest agent and BusyBox, then boots the agent as PID 1.
 
+Validated OCI `Config.Env` entries remain the default environment for guest
+commands, including image-defined toolchain paths. Spawnr's `dev` identity and
+ephemeral Git, GitHub, and SSH session values take precedence. `spawnr open`
+uses interactive, non-login `/bin/bash -i`, so interactive image setup belongs
+in `~/.bashrc`, not only in a login profile. See
+[CLI reference](docs/cli.md#oci-references-and-image-behavior) for the complete
+precedence and existing-machine migration rules.
+
 An environment used by `init` currently needs `/bin/sh`, `/bin/bash`, and
 `useradd` so the `dev` account can be created. An environment used by `clone`
 also needs Git; SSH repository URLs need an SSH client. A source image with a
