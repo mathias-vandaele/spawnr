@@ -15,20 +15,20 @@
 
 ## Install
 
-\`\`\`console
+```console
 $ curl -fsSL https://spawnr-cli.dev/install.sh | sh
 $ spawnr setup
 $ spawnr doctor
-\`\`\`
+```
 
-\`setup\` downloads the versioned runtime that matches the CLI. \`doctor\` checks
+`setup` downloads the versioned runtime that matches the CLI. \`doctor\` checks
 your host and the runtime.
 
 ## Create a machine
 
 Give Spawnr an OCI image and a Git repository:
 
-\`\`\`console
+```console
 $ spawnr clone \
     ghcr.io/acme/rust-dev:v1 \
     git@github.com:acme/project.git
@@ -37,7 +37,7 @@ $ spawnr clone \
 ✓ cloned git@github.com:acme/project.git
 
 $ spawnr open project-1
-\`\`\`
+```
 
 The repository is cloned inside the guest. You do not need a checkout on the
 host.
@@ -72,26 +72,26 @@ data by design.
 
 | Command | Action |
 |---|---|
-| \`spawnr ls\` | List machines |
-| \`spawnr open <name>\` | Open an interactive shell |
-| \`spawnr start <name>\` | Start a stopped machine |
-| \`spawnr stop <name>\` | Stop a machine and keep its data |
-| \`spawnr publish <name> <oci-ref>\` | Publish the environment as an OCI image |
-| \`spawnr rm <name>\` | Remove a machine after a workspace check |
+| `spawnr ls` | List machines |
+| `spawnr open <name>` | Open an interactive shell |
+| `spawnr start <name>` | Start a stopped machine |
+| `spawnr stop <name>` | Stop a machine and keep its data |
+| `spawnr publish <name> <oci-ref>` | Publish the environment as an OCI image |
+| `spawnr rm <name>` | Remove a machine after a workspace check |
 
 Create a machine without a repository:
 
-\`\`\`console
+```console
 $ spawnr init scratch --environment docker.io/library/ubuntu:24.04
 $ spawnr start scratch
 $ spawnr open scratch
-\`\`\`
+```
 
 Publish environment changes:
 
-\`\`\`console
+```console
 $ spawnr publish project-1 ghcr.io/acme/rust-dev:v2
-\`\`\`
+```
 
 ## Requirements and current scope
 
@@ -102,7 +102,7 @@ $ spawnr publish project-1 ghcr.io/acme/rust-dev:v2
 - No SSH server or IDE Remote SSH integration.
 - Publishing requires FUSE and working user namespaces.
 
-Run \`spawnr doctor\` for a precise host report.
+Run `spawnr doctor` for a precise host report.
 
 > [!IMPORTANT]
 > A forwarded SSH agent does not expose private key bytes. Guest code can still
@@ -114,17 +114,17 @@ Run \`spawnr doctor\` for a precise host report.
 The Nix flake pins Rust, Cargo dependencies, Cloud Hypervisor, passt, the guest
 kernel, BusyBox, the guest agent, and OCI tools.
 
-\`\`\`console
+```console
 $ nix develop
 $ cargo test --workspace --locked
 $ nix flake check
-\`\`\`
+```
 
 Run the local bundle without replacing an installed release:
 
-\`\`\`console
+```console
 $ SPAWNR_HOME=/tmp/spawnr-dev nix run . -- doctor
-\`\`\`
+```
 
 See [Development](docs/development.md) for build targets and KVM end-to-end
 tests.
