@@ -183,9 +183,10 @@ enforce an image signer/attestation policy. Use only registries and references
 you trust, prefer immutable digests for high-risk work, and treat signature
 policy support as outstanding work.
 
-Local daemon/store transports (`docker-daemon:`, `containers-storage:`, and
-similar) are rejected. Registry traffic and local OCI layouts are handled
-directly by `skopeo`; filesystem layer semantics are delegated to `umoci`.
+Spawnr's reference validator rejects local daemon/store transports
+(`docker-daemon:`, `containers-storage:`, and similar). Registry traffic and
+local OCI layouts are handled directly by `skopeo`; filesystem layer semantics
+are delegated to `umoci`.
 Mutable registry tags are resolved and the subsequent pull is rewritten to
 that digest; local OCI tags are verified after copying before a cache is
 committed. Publishing disables umoci's default `Config.Volumes` masking so
