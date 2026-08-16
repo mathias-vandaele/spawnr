@@ -62,7 +62,7 @@ jobs:
         run: sha256sum --check SHA256SUMS
 
       - name: Upload independent candidate
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-candidate-${{ matrix.builder }}
           path: candidate/
@@ -108,7 +108,7 @@ jobs:
             --repository "$GITHUB_REPOSITORY"
 
       - name: Upload verified candidate
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: verified-release
           path: candidates/first/
