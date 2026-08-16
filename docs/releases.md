@@ -28,8 +28,10 @@ $ nix build .#release-artifacts
 
 The release CLI is a stripped static PIE built against musl. The runtime uses
 static executables throughout, so V1 does not need its optional ELF-loader
-launcher form. Its skopeo build supports registry and OCI-layout transports
-but deliberately omits the Docker daemon and containers-storage transports.
+launcher form. Its skopeo build omits the Docker-daemon transport but retains
+upstream's containers-storage implementation to avoid a Spawnr-specific source
+patch. Spawnr's own reference validator still accepts only registry and local
+OCI-layout sources.
 
 `runtime-tree` creates the sorted manifest from the actual files and validates
 it with both the public JSON Schema and the Rust semantic contract.

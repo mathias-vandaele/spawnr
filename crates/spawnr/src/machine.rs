@@ -10,6 +10,8 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 const CLONE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+const DEFAULT_TERMINAL_TYPE: &str = "xterm-256color";
+const MAX_TERMINAL_TYPE_BYTES: usize = 64;
 
 pub struct Application {
     paths: Paths,
@@ -242,20 +244,8 @@ impl Application {
         // deliberate `spawnr stop` must remain usable while `open` is active.
         drop(locked);
         let (rows, cols) = terminal_size();
-        let cwd = record
-            .repository_dir
-            .as_ref()
-            .map(|directory| format!("/workspace/{directory}"))
-            .or_else(|| Some("/workspace".into()));
-        let env = BTreeMap::from([("HISTFILE".to_owned(), "/run/spawnr/bash-history".to_owned())]);
-        let request = Request::Exec {
-            argv: vec!["/bin/bash".into(), "-l".into()],
-            cwd,
-            env,
-            tty: true,
-            rows,
-            cols,
-        };
+        let host_term = std::env::var("TERM").ok();
+        let request = open_shell_request(&record, rows, cols, host_term.as_deref());
         let code = self.guest(&record).interactive_exec(request)?;
         if code != 0 {
             bail!("interactive shell exited with status {code}");
@@ -430,7 +420,7 @@ impl Application {
     }
 
     fn configure_session(&self, record: &MachineRecord) -> Result<()> {
-        let credentials = HostCredentials::collect();
+        let credentials = self.collect_credentials(record)?;
         let machine_paths = self.runtime_paths(record);
         if let Some(agent_link) = credentials.expose_ssh_agent(&machine_paths.vsock_socket)? {
             // Cloud Hypervisor follows the symlink each time the guest opens
@@ -474,7 +464,9 @@ impl Application {
     }
 
     fn start_record(&self, record: &MachineRecord) -> Result<()> {
-        let credentials = HostCredentials::collect();
+        // Resolve the digest-bound image environment before starting any
+        // helper so metadata failure cannot leave a partial VM runtime.
+        let credentials = self.collect_credentials(record)?;
         crate::vmm::start(&self.paths, record, &credentials, self.verbose)?;
         let guest = self.guest(record);
         if let Err(error) = guest.wait_healthy(std::time::Duration::from_secs(30)) {
@@ -503,6 +495,13 @@ impl Application {
             };
         }
         Ok(())
+    }
+
+    fn collect_credentials(&self, record: &MachineRecord) -> Result<HostCredentials> {
+        let mut credentials = HostCredentials::collect();
+        credentials.session.image_env = crate::oci::machine_config_env(&self.paths, record)
+            .context("load immutable OCI process environment")?;
+        Ok(credentials)
     }
 
     fn stop_record(&self, record: &MachineRecord) -> Result<()> {
@@ -560,6 +559,43 @@ fn expect_ok(response: Response) -> Result<()> {
         Response::Error { message } => bail!("guest operation failed: {message}"),
         response => bail!("guest returned an unexpected response: {response:?}"),
     }
+}
+
+fn open_shell_request(
+    record: &MachineRecord,
+    rows: u16,
+    cols: u16,
+    host_term: Option<&str>,
+) -> Request {
+    let cwd = record
+        .repository_dir
+        .as_ref()
+        .map(|directory| format!("/workspace/{directory}"))
+        .or_else(|| Some("/workspace".into()));
+    let env = BTreeMap::from([
+        ("HISTFILE".to_owned(), "/run/spawnr/bash-history".to_owned()),
+        ("TERM".to_owned(), terminal_type(host_term).to_owned()),
+    ]);
+    Request::Exec {
+        argv: vec!["/bin/bash".into(), "-i".into()],
+        cwd,
+        env,
+        tty: true,
+        rows,
+        cols,
+    }
+}
+
+fn terminal_type(value: Option<&str>) -> &str {
+    value
+        .filter(|value| {
+            !value.is_empty()
+                && value.len() <= MAX_TERMINAL_TYPE_BYTES
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+        })
+        .unwrap_or(DEFAULT_TERMINAL_TYPE)
 }
 
 fn with_rollback(primary: anyhow::Error, rollback: Result<()>) -> anyhow::Error {
@@ -777,5 +813,32 @@ mod tests {
             repository_display(Some("git@github.com:acme/foo.git")),
             "acme/foo"
         );
+    }
+
+    #[test]
+    fn open_uses_non_login_bash_with_session_history_and_safe_term() {
+        let none: BTreeMap<String, MachineRecord> = BTreeMap::new();
+        let record = new_record("work", "ubuntu", None, None, &none).unwrap();
+        let Request::Exec {
+            argv,
+            cwd,
+            env,
+            tty,
+            rows,
+            cols,
+        } = open_shell_request(&record, 24, 80, Some("screen.xterm-256color"))
+        else {
+            panic!("open did not build an exec request");
+        };
+        assert_eq!(argv, ["/bin/bash", "-i"]);
+        assert_eq!(cwd.as_deref(), Some("/workspace"));
+        assert_eq!(env["HISTFILE"], "/run/spawnr/bash-history");
+        assert_eq!(env["TERM"], "screen.xterm-256color");
+        assert!(tty);
+        assert_eq!((rows, cols), (24, 80));
+
+        assert_eq!(terminal_type(Some("../../terminfo")), DEFAULT_TERMINAL_TYPE);
+        assert_eq!(terminal_type(Some("bad\nterm")), DEFAULT_TERMINAL_TYPE);
+        assert_eq!(terminal_type(None), DEFAULT_TERMINAL_TYPE);
     }
 }

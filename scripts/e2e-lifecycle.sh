@@ -33,7 +33,7 @@ socket=$(machine_socket)
   'test "$(id -un)" = dev && test "$(git rev-parse --is-inside-work-tree)" = true'
 
 # Exercise the user-facing PTY. The disowned process deliberately retains a
-# PTY descriptor; open must still return as soon as the login shell exits.
+# PTY descriptor; open must still return as soon as the interactive shell exits.
 printf '%s\n' \
   'printf "SPAWNR_OPEN_OK:%s:%s\n" "$USER" "$PWD"' \
   'sleep 30 & disown' \

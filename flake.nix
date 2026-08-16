@@ -224,20 +224,21 @@
           '';
 
       # Spawnr only accepts registry (docker://) and local OCI-layout sources.
-      # Build a pure-Go skopeo without daemon/store transports, GPGME, LVM, or
-      # Btrfs support instead of shipping the distribution-oriented wrapper.
+      # Build a pure-Go static skopeo without the Docker-daemon transport,
+      # GPGME, or Btrfs support. Keep upstream's containers-storage code in the
+      # binary so this build does not require a Spawnr-specific source patch;
+      # Spawnr's reference validator never selects that transport.
       runtimeSkopeo = pkgs.pkgsStatic.buildGoModule {
         pname = "spawnr-runtime-skopeo";
         inherit (pkgs.skopeo) version src;
         vendorHash = null;
         doCheck = false;
-        patches = [ ./nix/skopeo-storage-stub.patch ];
         buildPhase = ''
           runHook preBuild
           export CGO_ENABLED=0
           go build \
             -trimpath \
-            -tags='exclude_graphdriver_btrfs containers_image_openpgp containers_image_storage_stub containers_image_docker_daemon_stub' \
+            -tags='exclude_graphdriver_btrfs containers_image_openpgp containers_image_docker_daemon_stub' \
             -ldflags='-s -w' \
             -o bin/skopeo \
             ./cmd/skopeo
@@ -249,7 +250,7 @@
           runHook postInstall
         '';
         meta = pkgs.skopeo.meta // {
-          description = "Static registry/OCI-only skopeo for the Spawnr runtime";
+          description = "Static skopeo for the Spawnr registry/OCI runtime";
         };
       };
 

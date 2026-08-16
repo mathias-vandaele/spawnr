@@ -131,11 +131,17 @@ private interactive PTY as `dev`. A repository machine starts in
 $ spawnr open project-1
 ```
 
-The login program is `/bin/bash -l`. The transport is AF_VSOCK via a private
-host Unix socket. `open` does not expose SSH or a host network port, and its
-interactive lifetime does not retain the global state lock.
-Spawnr sets `HISTFILE=/run/spawnr/bash-history` so ordinary Bash history is
-session-scoped; image-controlled login startup files can override that value.
+The shell is `/bin/bash -i`: interactive, but deliberately not a login shell.
+Under normal Bash startup rules it reads `~/.bashrc`, not `/etc/profile`,
+`~/.bash_profile`, `~/.bash_login`, or `~/.profile`. Images and existing
+machines that kept interactive setup only in a login profile should move it to
+`~/.bashrc`, or source one shared file from both startup paths.
+
+The transport is AF_VSOCK via a private host Unix socket. `open` does not
+expose SSH or a host network port, and its interactive lifetime does not retain
+the global state lock. Spawnr sets `HISTFILE=/run/spawnr/bash-history` so
+ordinary Bash history is session-scoped; an image-controlled `~/.bashrc` can
+override that value after Bash starts.
 
 ## `spawnr publish`
 
@@ -239,9 +245,38 @@ Spawnr currently selects linux/amd64 when inspecting and copying an image.
 Images are filesystem environments: OCI `ENTRYPOINT` and `CMD` are not run.
 The injected Spawnr agent is PID 1.
 
+Spawnr validates and preserves the image's ordered OCI `Config.Env` entries as
+defaults for every guest child process: the initial clone, workspace-status
+checks, non-interactive execution, and `open`. Duplicate image entries retain
+OCI's last-entry-wins behavior. If the image omits `PATH`, Spawnr supplies a
+safe system path; an image-defined `PATH` wins over that fallback, so images
+such as the official Rust image retain their toolchain paths.
+
+Before starting a child, Spawnr clears the agent's own process environment and
+then applies values in this order:
+
+1. fallback `PATH`, then the image's `Config.Env` defaults;
+2. the fixed `dev` identity: `HOME`, `USER`, `LOGNAME`, and `SHELL`;
+3. current session Git, GitHub, known-host, and SSH-agent controls, removing
+   conflicting image values when a capability is absent; and
+4. explicit operation-specific values, such as `open`'s session `HISTFILE`.
+
+Do not put credentials in OCI `Config.Env`: those values are durable image
+metadata, not session secrets. An interactive `~/.bashrc` can still change the
+shell environment after this process-level precedence has been applied.
+
 Tags are accepted, but Spawnr records the resolved manifest digest and uses a
 content-addressed cache key. A later operation sees a moved tag as new source
 content.
+
+Machines created before `Config.Env` preservation keep their historical empty
+image baseline (plus Spawnr's fallback `PATH`) after an upgrade. This avoids
+changing or breaking an existing machine implicitly. To opt in, preserve the
+workspace through Git or another explicit backup, publish the environment first
+if its filesystem changes must survive, and then create a new machine from the
+desired source or published image. Publishing never includes the workspace.
+The source image's `Config.Env` metadata is preserved across publish/reimport;
+shell exports and edits to startup files do not rewrite OCI `Config.Env`.
 
 The source image must provide `/bin/sh`, `/bin/bash`, and `useradd`. `clone`
 additionally requires Git, and SSH Git URLs require an SSH client. Images
